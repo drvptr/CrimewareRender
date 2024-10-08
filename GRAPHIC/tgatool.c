@@ -653,9 +653,6 @@ int set_pixel(TGAimage *dest, unsigned short x, unsigned short y, int clr){
 	return 0;
 };
 
-int RGBA_to_ARGB(int color){
-	return (color << 24)|(color >> 8);
-};
 
 int get_pixel(TGAimage *dest, unsigned int x, unsigned int y){
 	if(dest == NULL){
@@ -673,7 +670,7 @@ int get_pixel(TGAimage *dest, unsigned int x, unsigned int y){
 			y = y - (unsigned int)dummy->width;
 		} while(y < (unsigned int)dummy->width);
 	};
-	return RGBA_to_ARGB((dest->canvas)[y][x]);
+	return RGBA_to_ARGB((unsigned int)(dest->canvas)[y][x]);
 };
 
 void set_mode(TGAimage *image, image_types new_mode){
