@@ -28,7 +28,7 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- *	@(#)io.h	1.0 (Potr Dervyshev) 11/05/2024
+ *	@(#)io.h	1.0 (Potr Dervyshev) 08/10/2024
  */
  
 #ifndef INPUTOUTPUT_H_SENTRY
@@ -61,6 +61,7 @@ window *io_InitWindow();		//Constructor-func
 int io_GetWidth(window *w);	//Acsessors-funcs
 int io_GetHeight(window *w);
 void io_SetPixel(window *w, int x, int y, int color);
+int io_GetPixel(window *w, int x, int y);
 void io_UpdateFrame(window *w);
 void io_CloseWindow(window *w);	//Destructor-func
 
