@@ -91,7 +91,9 @@ void eject_image(TGAimage *existing_image);
 //USAGE:  save_image(newimg);
 //NOTE:	  Remove image from RAM. Like function free(), but for images.
 
-int RGBA_to_ARGB(int color);
+static inline unsigned int RGBA_to_ARGB(unsigned int color){
+	return (color << 24)|(color >> 8);
+};
 
 TGAimage *open_embed_image(unsigned char arr[], unsigned int len);
 
