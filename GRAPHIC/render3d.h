@@ -28,7 +28,7 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- *	@(#)render3d.h	1.0 (Potr Dervyshev) 11/05/2024
+ *	@(#)render3d.h	1.0 (Potr Dervyshev) 07/10/2024
  */
 #ifndef RENDER3D_H_SENTRY
 #define RENDER3D_H_SENTRY
@@ -39,7 +39,12 @@
 #include "basics.h"
 #include "tgatool.h"
 
-typedef struct camera_t{
+typedef struct camera_t camera;
+
+typedef int (*Projection)(vector, camera *, int *x, int *y, fixed *z);
+
+struct camera_t{
+	Projection Capture;
 	vector pos;
 	vector target;
 	vector dir; //x_aix
@@ -48,17 +53,19 @@ typedef struct camera_t{
 	fixed **zbuffer;
 	int buf_refill_required;
 	float fov;
+	float far;
 	int w;
 	int h;
 	int hw;
 	int hh;
-} camera;
+};
 
 /* 1. CAMERA METHODS */
 camera *InitCamera(window *w,int x0,int y0,int z0,int x1,int y1,int z1,int fov);
 void MoveCamera(camera *cam, vector new_pos, vector new_target);
-int PerspectiveProjection(vector p, camera *cam, int *x, int *y, fixed *z);
 void FreeCamera(camera *cam);
+int PerspectiveProjection(vector p, camera *cam, int *x, int *y, fixed *z);
+int OrthographicProjection(vector p, camera *cam, int *x, int *y, fixed *z);
 
 /*2. RENDERERS */
 void RenderZBuffer(window *w, camera *cam,wavefront_obj *obj, int max_depth);
