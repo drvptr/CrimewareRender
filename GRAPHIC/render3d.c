@@ -28,7 +28,7 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- *	@(#)render3d.c	1.0 (Potr Dervyshev) 11/05/2024
+ *	@(#)render3d.c	1.0 (Potr Dervyshev) 07/10/2024
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -38,7 +38,8 @@
 #include "render3d.h"
 
 #define SUN (vector){0,0,1}
-#define MISSED_TEXTURE_COLOR 0xFF000000
+#define MISSED_TEXTURE_COLOR 0xFFFFC0CB
+#define DEFAULT_FAR 10000
 #define SHADOW 0.4
 #define REFLEX 0.2
 
@@ -61,6 +62,7 @@ camera *InitCamera(window *w,int x0,int y0,int z0,int x1,int y1,int z1,int fov){
 	res->target[Y] = (float)(y1);
 	res->target[Z] = (float)(z1);
 	res->fov = (float)(fov);
+	res->far = DEFAULT_FAR;
 	res->w = io_GetWidth(w);
 	res->h = io_GetHeight(w);
 	res->hw = res->w/2;
@@ -73,6 +75,7 @@ camera *InitCamera(window *w,int x0,int y0,int z0,int x1,int y1,int z1,int fov){
 	vec_normalize(res->z_aix);
 	res->zbuffer = ZBufferInit(res->w, res->h);
 	res->buf_refill_required = TRUE;
+	res->Capture = PerspectiveProjection;
 	return res;
 };
 
@@ -109,7 +112,7 @@ int PerspectiveProjection(vector p, camera *cam, int *x, int *y, fixed *z){
 	float x_cam = vec_dot(p_c, cam->y_aix);
 	float y_cam = vec_dot(p_c, cam->z_aix);
 	float z_cam = vec_dot(p_c, cam->dir);
-	if(z_cam <= 0) {
+	if(z_cam <= 0 || z_cam >= cam->far) {
 		return 1;
 	}
 	*x = (int)((x_cam * cam->fov) / z_cam) + cam->hw;
@@ -117,6 +120,22 @@ int PerspectiveProjection(vector p, camera *cam, int *x, int *y, fixed *z){
 	*z = FLOAT_TO_FIXED(z_cam);
 	return 0;
 }
+
+int OrthographicProjection(vector p, camera *cam, int *x, int *y, fixed *z){
+	vector p_c = {  p[X] - cam->pos[X],
+			p[Y] - cam->pos[Y],
+			p[Z] - cam->pos[Z]	};
+	float x_cam = vec_dot(p_c, cam->y_aix);
+	float y_cam = vec_dot(p_c, cam->z_aix);
+	float z_cam = vec_dot(p_c, cam->dir);
+	if(z_cam <= 0 || z_cam >= cam->far) {
+		return 1;
+	}
+	*x = (int)(x_cam) + cam->hw;
+	*y = cam->hh - (int)(y_cam);
+	*z = FLOAT_TO_FIXED(z_cam);
+	return 0;
+};
 
 void RenderWireframe(window *w, camera *cam, wavefront_obj *obj, int color){
 	int i = 0;
@@ -129,8 +148,8 @@ void RenderWireframe(window *w, camera *cam, wavefront_obj *obj, int color){
 		while(cur != NULL){
 			COPY_POINT(obj,prv->v,p0);
 			COPY_POINT(obj,cur->v,p1);
-			if(PerspectiveProjection(p0, cam, &x0, &y0, &z0) ||
-			   PerspectiveProjection(p1, cam, &x1, &y1, &z1)){
+			if(cam->Capture(p0, cam, &x0, &y0, &z0) ||
+			   cam->Capture(p1, cam, &x1, &y1, &z1)){
 			   	prv = cur;
 				cur = cur->next;
 				continue;
@@ -142,8 +161,8 @@ void RenderWireframe(window *w, camera *cam, wavefront_obj *obj, int color){
 				cur = FACE(obj,i);
 				COPY_POINT(obj,prv->v,p0);
 				COPY_POINT(obj,cur->v,p1);
-				if(PerspectiveProjection(p0, cam, &x0, &y0, &z0) ||
-				   PerspectiveProjection(p1, cam, &x1, &y1, &z1))
+				if(cam->Capture(p0, cam, &x0, &y0, &z0) ||
+				   cam->Capture(p1, cam, &x1, &y1, &z1))
 					break;
 				DrawLine(w,x0,y0,x1,y1,color);
 				break;
@@ -180,13 +199,13 @@ void RenderShaded(window *w, camera *cam, wavefront_obj *obj, int color){
 		polygon *prv = FACE(obj,i)->next;
 		polygon *cur = (FACE(obj,i)->next)->next;
 		COPY_POINT(obj,fst->v,p0);
-		if(PerspectiveProjection(p0, cam, &x0, &y0, &z0))
+		if(cam->Capture(p0, cam, &x0, &y0, &z0))
 			continue;
 		do {
 			COPY_POINT(obj,prv->v,p1);
 			COPY_POINT(obj,cur->v,p2);
-			if(PerspectiveProjection(p1, cam, &x1, &y1, &z1) ||
-			   PerspectiveProjection(p2, cam, &x2, &y2, &z2)){
+			if(cam->Capture(p1, cam, &x1, &y1, &z1) ||
+			   cam->Capture(p2, cam, &x2, &y2, &z2)){
 			   	prv = cur;
 				cur = cur->next;
 				continue;
@@ -261,15 +280,15 @@ void RenderTextured(window *w, camera *cam, wavefront_obj *obj, TGAimage *textur
 		polygon *cur = (FACE(obj,i)->next)->next;
 		COPY_POINT(obj,fst->v,p0);
 		COPY_TEXTURE(obj,fst->vt,t0);
-		if(PerspectiveProjection(p0, cam, &x0, &y0, &z0))
+		if(cam->Capture(p0, cam, &x0, &y0, &z0))
 			continue;
 		do {
 			COPY_POINT(obj,prv->v,p1);
 			COPY_TEXTURE(obj,prv->vt,t1);
 			COPY_POINT(obj,cur->v,p2);
 			COPY_TEXTURE(obj,cur->vt,t2);
-			if(PerspectiveProjection(p1, cam, &x1, &y1, &z1) ||
-			   PerspectiveProjection(p2, cam, &x2, &y2, &z2)){
+			if(cam->Capture(p1, cam, &x1, &y1, &z1) ||
+			   cam->Capture(p2, cam, &x2, &y2, &z2)){
 			   	prv = cur;
 				cur = cur->next;
 				continue;
@@ -325,7 +344,7 @@ static void GouraudPlot(window *w, int x, int y, int color, void *user_data){
 	}
 	if(z <= zbuffer[x][y]){
 		int newcol = AdjustIntensity(color,i);
-		io_SetPixel(w,x,y,newcol);
+		DrawAlphaPixel(w,x,y,newcol);
 	}
 };
 
@@ -355,7 +374,7 @@ void RenderGouraud(window *w, camera *cam, wavefront_obj *obj,
 		COPY_POINT(obj,fst->v,p0);
 		COPY_TEXTURE(obj,fst->vt,t0);
 		COPY_NORMAL(obj,fst->vn,n0);
-		if(PerspectiveProjection(p0, cam, &x0, &y0, &z0))
+		if(cam->Capture(p0, cam, &x0, &y0, &z0))
 			continue;
 		do {
 			COPY_POINT(obj,prv->v,p1);
@@ -364,8 +383,8 @@ void RenderGouraud(window *w, camera *cam, wavefront_obj *obj,
 			COPY_POINT(obj,cur->v,p2);
 			COPY_TEXTURE(obj,cur->vt,t2);
 			COPY_NORMAL(obj,cur->vn,n2);
-			if(PerspectiveProjection(p1, cam, &x1, &y1, &z1) ||
-			   PerspectiveProjection(p2, cam, &x2, &y2, &z2)){
+			if(cam->Capture(p1, cam, &x1, &y1, &z1) ||
+			   cam->Capture(p2, cam, &x2, &y2, &z2)){
 			   	prv = cur;
 				cur = cur->next;
 				continue;
@@ -423,13 +442,13 @@ static void FillZBuffer(window *w, camera *cam, wavefront_obj *obj){
 		polygon *prv = FACE(obj,i)->next;
 		polygon *cur = (FACE(obj,i)->next)->next;
 		COPY_POINT(obj,fst->v,p0);
-		if(PerspectiveProjection(p0, cam, &x0, &y0, &z0))
+		if(cam->Capture(p0, cam, &x0, &y0, &z0))
 			continue;
 		do {
 			COPY_POINT(obj,prv->v,p1);
 			COPY_POINT(obj,cur->v,p2);
-			if(PerspectiveProjection(p1, cam, &x1, &y1, &z1) ||
-			   PerspectiveProjection(p2, cam, &x2, &y2, &z2)){
+			if(cam->Capture(p1, cam, &x1, &y1, &z1) ||
+			   cam->Capture(p2, cam, &x2, &y2, &z2)){
 			   	prv = cur;
 				cur = cur->next;
 				continue;
