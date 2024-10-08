@@ -63,6 +63,10 @@ void io_SetPixel(window *w, int x, int y, int color){
 	XPutPixel(w->buf,x,y,color);
 };
 
+int io_GetPixel(window *w, int x, int y){
+	return (int)XGetPixel(w->buf,x,y);
+};
+
 void io_UpdateFrame(window *w){
 	XPutImage(w->dsp, w->win, w->gc, w->buf,
 		  0, 0, 0, 0, io_GetWidth(w), io_GetHeight(w));
@@ -227,5 +231,3 @@ static int ConvertKeysyms(int keysym){
 	}
 	return 104;
 };
-
-
