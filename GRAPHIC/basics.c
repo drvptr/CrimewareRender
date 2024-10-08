@@ -28,7 +28,7 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- *	@(#)basics.c	1.0 (Potr Dervyshev) 11/05/2024
+ *	@(#)basics.c	1.0 (Potr Dervyshev) 08/11/2024
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -69,12 +69,24 @@ struct font_t{
 
 /*_____________MAIN FUNCS (DRAWERS)_____________*/
 
+void DrawAlphaPixel(window *w, int x, int y, int color){
+	int width = io_GetWidth(w); int height = io_GetHeight(w);
+	if( (y < height) && (x < width) && (x >= 0) && (y >= 0) ){
+		if(ALPHA(color)){
+			if(TRANSPARENT(color))
+				return;
+			BlendAlpha(io_GetPixel(w,x,y), &color);
+			io_SetPixel(w, x, y, color);
+		}else{
+			io_SetPixel(w, x, y, color);
+		};
+	};
+};
+
 void DrawPixel(window *w, int x, int y, int color){
 	int width = io_GetWidth(w); int height = io_GetHeight(w);
 	if( (y < height) && (x < width) && (x >= 0) && (y >= 0) ){
-		if(!ALPHA(color)){
-			io_SetPixel(w, x, y, color);
-		};
+		io_SetPixel(w, x, y, color);
 	};
 };
 
@@ -273,6 +285,17 @@ void DrawText(window* w,int x,int y,int size,font* f,int color,char* text){
 };
 
 /*_____________UTILITY_____________*/
+
+void BlendAlpha(int bg, int *color){
+	int r,g,b, r_bg, g_bg, b_bg;
+	UnmixColor(*color, &r, &g, &b);
+	UnmixColor(bg, &r_bg, &g_bg, &b_bg);
+	float alpha = (float)(((*color) >> 24) & 0xFF) / 255.0f;
+	r = r*alpha + r_bg*(1-alpha);
+	g = g*alpha + g_bg*(1-alpha);
+	b = b*alpha + b_bg*(1-alpha);
+	*color = MixColor(r, g, b);
+}
 
 void DefaultPlot(window *w,int x,int y,int color,void *userdata){
 	io_SetPixel(w,x,y,color);
