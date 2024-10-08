@@ -28,7 +28,7 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- *	@(#)basics.h	1.0 (Potr Dervyshev) 11/05/2024
+ *	@(#)basics.h	1.0 (Potr Dervyshev) 08/11/2024
  */
 /* BASIC DRAWING PRIMITIVES */
 #ifndef BASICS_H_SENTRY
@@ -40,7 +40,8 @@
 #define GET_W(image) ((image)[0])
 #define GET_H(image) ((image)[1])
 #define GET_COLOR(image,x,y) ((image)[(x)*((image)[1])+(y+2)])
-#define ALPHA(color) ((((unsigned int)color) >> 24) < (unsigned int)0x7F)
+#define ALPHA(color) (((color) & 0xFF000000) != 0xFF000000)
+#define TRANSPARENT(color) (((color) & 0xFF000000) == 0x00000000)
 
 typedef void(*Plotter)(window *w,int x,int y, int color, void *userdata);
 
@@ -48,6 +49,7 @@ typedef struct font_t font;
 
 /* 1.PRIMITIVES-FUNCS */
 void DrawPixel(window *w, int x, int y, int color);
+void DrawAlphaPixel(window *w, int x, int y, int color);
 void DrawLine(window *w, int x0, int y0, int x1, int y1, int color);
 void DrawTriangle( window *w, int x1,int y1,int x2,int y2,int x3,int y3,
 		    Plotter Plot, int color, void *userdata);
@@ -70,13 +72,14 @@ inline static void UnmixColor(int color, int *r, int *g, int *b){
 
 inline static int AdjustIntensity(int color, float intensity){
 	intensity = ABS(intensity);
+	int a = color & 0xFF000000;
 	int r = (color >> 16) & 0xFF;
 	int g = (color >> 8) & 0xFF;
 	int b = color & 0xFF;
 	r = (int)(r * intensity);
 	g = (int)(g * intensity);
 	b = (int)(b * intensity);
-	return 0xFF000000 | (r << 16) | (g << 8) | b;
+	return a | (r << 16) | (g << 8) | b;
 }
 
 inline static int ConvertToGrayARGB(int value, int max) {
@@ -87,6 +90,7 @@ inline static int ConvertToGrayARGB(int value, int max) {
 	return color;
 }
 
+void BlendAlpha(int bg, int *color);
 font* LoadFont(char* path);
 void FreeFont(font *f);
 void DefaultPlot(window *w,int x,int y,int color,void *userdata);
