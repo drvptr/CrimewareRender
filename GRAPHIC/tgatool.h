@@ -71,6 +71,8 @@ int set_pixel(TGAimage *dest, unsigned short x, unsigned short y, int clr);
 //RETURN VALUE: 0 Sucsess, -1  No image, -2 Pixel is out of canvas
 
 int get_pixel(TGAimage *dest, unsigned int x, unsigned int y);
+//USAGE: int color1 = get_pixel(newimg1,50,75);
+//NOTE: Pick color from canvas (result in ARGB format)
 
 void set_mode(TGAimage *image, image_types new_mode);
 //USAGE:  set_mode(newimg1,uncompressed_truecolor);
@@ -94,7 +96,20 @@ void eject_image(TGAimage *existing_image);
 static inline unsigned int RGBA_to_ARGB(unsigned int color){
 	return (color << 24)|(color >> 8);
 };
+//USAGE:  int argb_col1 = RGBA_to_ARGB(rgbacol22);
+//NOTE:	  Change color format from RGBA to ARGB
 
 TGAimage *open_embed_image(unsigned char arr[], unsigned int len);
+/*USAGE: (in shell)
+	$ xxd -i ./image.tga > image.c
+(then in .c file)
+	#include "image.c"
+	TGAimage *newimg2 = open_embed_image(image_tga, image_tga_len);
+*/
+//NOTE: open image from char array.
+
+void rescale_image(TGAimage* img, int new_height, int new_width);
+//USAGE:  rescale_image(img1, 600, 400);
+//NOTE:	  rescaling image canvas with bilinear interpolation
 
 #endif
