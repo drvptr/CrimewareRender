@@ -660,12 +660,12 @@ int get_pixel(TGAimage *dest, unsigned int x, unsigned int y){
 	};
 	tgaheaders *dummy;
 	dummy = dest->header;
-	if(x >= (unsigned int)dummy->width){
+	if(x >= (unsigned int)dummy->height){
 		do {
-			x = x - (unsigned int)dummy->width;
-		} while(x < (unsigned int)dummy->width);
+			x = x - (unsigned int)dummy->height;
+		} while(x < (unsigned int)dummy->height);
 	};
-	if(y >= (int)dummy->height){
+	if(y >= (unsigned int)dummy->width){
 		do {
 			y = y - (unsigned int)dummy->width;
 		} while(y < (unsigned int)dummy->width);
@@ -725,7 +725,7 @@ short get_width(TGAimage *image){
 		return 0;
 	tgaheaders *dummy;
 	dummy = image->header;
-	return dummy->width;
+	return dummy->height;
 };
 
 short get_height(TGAimage *image){
@@ -733,7 +733,7 @@ short get_height(TGAimage *image){
 		return 0;
 	tgaheaders *dummy;
 	dummy = image->header;
-	return dummy->height;
+	return dummy->width;
 };
 
 int save_image(TGAimage *image, char *filename){
@@ -975,5 +975,52 @@ void eject_image(TGAimage *existing_image){
 	free(existing_image);
 };
 
-
-
+void rescale_image(TGAimage* img, int new_width, int new_height){
+	int old_width = get_width(img);
+	int old_height = get_height(img);
+	float scale_x = (float)old_width / new_width;
+	float scale_y = (float)old_height / new_height;
+	int **new_canvas = init_canvas((short)new_height, (short)new_width);
+	for (int y = 0; y < new_height; y++) {
+		for (int x = 0; x < new_width; x++) {
+			float old_x = x * scale_x;
+			float old_y = y * scale_y;
+			int x0 = (int)old_x;
+			int y0 = (int)old_y;
+			int x1 = (x0 + 1 < old_width) ? x0 + 1 : x0;
+			int y1 = (y0 + 1 < old_height) ? y0 + 1 : y0;
+			uint32_t c00 = get_pixel(img, x0, y0);
+			uint32_t c10 = get_pixel(img, x1, y0);
+			uint32_t c01 = get_pixel(img, x0, y1);
+			uint32_t c11 = get_pixel(img, x1, y1);
+			float dx = old_x - x0;
+			float dy = old_y - y0;
+			/*https://en.wikipedia.org/wiki/Bilinear_interpolation*/
+			uint32_t a = (1 - dx) * (1 - dy) * ((c00 >> 24) & 0xFF) + 
+						 dx * (1 - dy) * ((c10 >> 24) & 0xFF) + 
+						 (1 - dx) * dy * ((c01 >> 24) & 0xFF) + 
+						 dx * dy * ((c11 >> 24) & 0xFF);
+			uint32_t r = (1 - dx) * (1 - dy) * ((c00 >> 16) & 0xFF) + 
+						 dx * (1 - dy) * ((c10 >> 16) & 0xFF) + 
+						 (1 - dx) * dy * ((c01 >> 16) & 0xFF) + 
+						 dx * dy * ((c11 >> 16) & 0xFF);
+			uint32_t g = (1 - dx) * (1 - dy) * ((c00 >> 8) & 0xFF) + 
+						 dx * (1 - dy) * ((c10 >> 8) & 0xFF) + 
+						 (1 - dx) * dy * ((c01 >> 8) & 0xFF) + 
+						 dx * dy * ((c11 >> 8) & 0xFF);
+			uint32_t b = (1 - dx) * (1 - dy) * (c00 & 0xFF) + 
+						 dx * (1 - dy) * (c10 & 0xFF) + 
+						 (1 - dx) * dy * (c01 & 0xFF) + 
+						 dx * dy * (c11 & 0xFF);
+			uint32_t new_color = (r << 24) | (g << 16) | (b << 8) | a;
+			new_canvas[y][x] = new_color;
+		}
+	}
+	free_canvas(img->canvas);
+	img->canvas = new_canvas;
+	tgaheaders *dummy;
+	dummy = img->header;
+	dummy->height = (short)new_width;
+	dummy->width = (short)new_height;
+	img->header = dummy;
+}
