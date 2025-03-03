@@ -1,5 +1,5 @@
 ## WHAT IS THIS
-This is a module for 3D software rendering of models in the wavefront obj format.
+This is a module for 3D software rendering of models in the wavefront obj format. Glory to https://www.siberianbattalion.com/
 
 ## DEPENDENCIES
 - Windows: gcc (mingw)
