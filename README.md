@@ -1,5 +1,5 @@
 ## WHAT IS THIS
-This is a module for 3D software rendering of models in the wavefront obj format. Glory to https://www.siberianbattalion.com/
+This is a module for 3D software rendering of models in the wavefront obj format. 
 
 ## DEPENDENCIES
 - Windows: gcc (mingw)
@@ -35,3 +35,5 @@ DrawTriangle(w,300,300,100,100,220,500,DefaultPlot,0xFFAA2020,NULL);
 ```
 - **GRAPHIC/render3d.h** -This module contains a dynamic perspective camera. The camera is described as simply another coordinate system into which all points are projected. The camera also contains a depth buffer. The depth buffer is a two-dimensional array of integers, the size of the screen, where each cell indicates how far away the camera is from the camera. It is possible to render the buffer separately for debugging.
 - **main.c** - Demonstration program. Just open this file and comment what you don't need.
+
+- Glory to https://www.siberianbattalion.com/
