@@ -1,49 +1,64 @@
-#include <stdio.h>
+#include <X11/Xlib.h>
+#include <X11/extensions/XShm.h>
+#include <GL/gl.h>
+#include <GL/glx.h>
+#include <GL/glu.h>
+#include <sys/time.h>
 #include <stdlib.h>
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+#include <signal.h>
 #include <unistd.h>
-#include <time.h>
 #include <math.h>
-#include "IO/io.h"
-#include "GRAPHIC/algebra.h"
-#include "GRAPHIC/tgatool.h"
-#include "GRAPHIC/wavefront.h"
-#include "GRAPHIC/basics.h"
-#include "GRAPHIC/render3d.h"
+#include "io.h"
+#include "wavefront.h"
+#include "render3d.h"
 
+/*io_window_t *exception_win = NULL;
 
+void quit_handler(int none){
+	if(exception_win)
+		io_CloseWindow(exception_win);
+}
 
-#define R 400
+signal(SIGINT, quit_handler);
+signal(SIGTERM, quit_handler);
 
-int main(){
-	wavefront_obj *obj = ImportObj("freebsd.obj");
-	WavefrontPrintLog(obj);
-	TGAimage *texture = open_image("freebsd.tga");
-	if(obj == NULL){
-		fprintf(stderr,"nothing to render\n");
-		return 1;
-	}
-	window *w = io_InitWindow();
-	camera *cam = InitCamera(w,0,0,0,0,0,0,400);
-	float t = 0;
-	while(1){
-		vector new_pos = { R*cosf(t), R*sinf(t), 0 };
-		t = t + 0.01;
-		if(t >= M_PI*2){
-			t = t - M_PI*2;
+exception_win = w;*/
+
+#define PI 3.1415926535
+
+#define RGB(r,g,b) (((r)<<16)|((g)<<8)|(b))
+
+void DrawBackground(io_window_t *w, int width, int height){
+	for (int y = 0; y < height; y++) {
+		for (int x = 0; x < width; x++) {
+			io_SetPixel(w, x, y, RGB(x, y, 128));
 		}
-		DrawGradient(w,0,0,io_GetWidth(w),io_GetHeight(w),0xEEFFFE,0x8080FF);
-		MoveCamera(cam, new_pos, NULL);
-		/* RENDERERS DEMONSTRATION (UNCOMENT ONE) */
-		//RenderShaded(w, cam, obj, 0xFFAA0000);
-		//RenderTextured(w, cam, obj, texture);
-		RenderGouraud(w, cam, obj, texture, 0xFF212121);
-		//RenderZBuffer(w, cam, obj, 8000);
-		//RenderWireframe(w, cam, obj, 0xFF121212);
+	}
+}
+
+int main(void) {
+	io_keys_t *c = io_InitKeys();
+	io_window_t *w = io_InitWindow();
+	wf_wavefront_t *new = wf_LoadWavefront("freebsd.obj");
+	if(new == NULL)
+		return 1;
+	//wf_WavefrontCalculateNormals(new);
+	int playloop = 1;
+	r3_camera_t *cam  = r3_InitCamera(w,700,800,0,0,0,0);
+	while (playloop) {
+		io_PollKeys(w, c, 0);
+		if(c->status[KEY_ESC] == IO_TOGGLED)
+			playloop = 0;
+		glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+		r3_RenderMesh(w, new, NULL);
 		io_UpdateFrame(w);
-	};
-	eject_image(texture);
-	FreeCamera(cam);
-	FreeObj(obj);
+	}
 	io_CloseWindow(w);
+	io_FreeKeys(c);
+	wf_RemoveWavefront(new);
+	r3_RemoveCamera(cam);
 	return 0;
-};
+}
