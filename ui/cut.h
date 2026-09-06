@@ -28,8 +28,8 @@
 
 struct cut_key {
 	float at;
-	struct vec3 eye;
-	struct vec3 look;
+	vector eye;
+	vector look;
 };
 
 struct cut_mark {
@@ -59,8 +59,8 @@ struct cutscene {
 };
 
 void cut_Clear(struct cutscene *c);
-int cut_Camera(struct cutscene *c, float at, struct vec3 eye,
-    struct vec3 look);
+int cut_Camera(struct cutscene *c, float at, const vector eye,
+    const vector look);
 int cut_Mark(struct cutscene *c, float at, int event);
 int cut_Subtitle(struct cutscene *c, float from, float to, const char *text);
 void cut_Fades(struct cutscene *c, float in_seconds, float out_seconds);

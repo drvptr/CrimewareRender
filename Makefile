@@ -29,7 +29,7 @@ BUF = buf/buffer.c
 ENGINE = $(BUF) $(CORE) $(ASSET) $(WORLD) $(UI) $(SND) \
 	 plat/plat_$(PLAT).c gfx/gfx_$(GFX).c
 
-DEMO = demo/main.c
+DEMO = demo/main.c demo/camera.c
 TEST = test/test.c
 
 all: demo-bin

@@ -73,27 +73,41 @@ slurp(const char *path, long *len)
 static void
 test_math(void)
 {
-	struct vec3 a;
-	struct vec3 b;
+	vector a;
+	vector b;
+	vector c;
 	float m[16];
 	float n[16];
 	float p[16];
-	struct vec3 r;
+	vector r;
 
-	a = v3(1.0f, 0.0f, 0.0f);
-	b = v3(0.0f, 1.0f, 0.0f);
-	check(close_to(v3_dot(a, b), 0.0f), "dot of perpendicular is zero");
-	check(close_to(v3_cross(a, b).z, 1.0f), "cross of x and y is z");
-	check(close_to(v3_len(v3(3.0f, 4.0f, 0.0f)), 5.0f), "length 3 4 5");
+	VEC_SET(a, 1.0f, 0.0f, 0.0f);
+	VEC_SET(b, 0.0f, 1.0f, 0.0f);
+	check(close_to(vec_dot(a, b), 0.0f), "dot of perpendicular is zero");
+	vec_cross(a, b, c);
+	check(close_to(c[Z], 1.0f), "cross of x and y is z");
+	VEC_SET(c, 3.0f, 4.0f, 0.0f);
+	check(close_to(vec_abs(c), 5.0f), "length 3 4 5");
+
+	/*  Проверка того, что vec_cross терпит выходной аргумент, равный
+	 *  входному. На master это было невозможно по построению.
+	 */
+	VEC_SET(a, 1.0f, 0.0f, 0.0f);
+	VEC_SET(b, 0.0f, 1.0f, 0.0f);
+	vec_cross(a, b, a);
+	check(close_to(a[Z], 1.0f) && close_to(a[X], 0.0f),
+	    "vec_cross выдерживает c == a");
 
 	m4_translate(m, 1.0f, 2.0f, 3.0f);
-	r = m4_mul_point(m, v3(0.0f, 0.0f, 0.0f));
-	check(close_to(r.x, 1.0f) && close_to(r.y, 2.0f) &&
-	    close_to(r.z, 3.0f), "translation moves the origin");
+	VEC_ZERO(c);
+	m4_mul_point(m, c, r);
+	check(close_to(r[X], 1.0f) && close_to(r[Y], 2.0f) &&
+	    close_to(r[Z], 3.0f), "translation moves the origin");
 
 	m4_rot_y(m, 1.5707963f);
-	r = m4_mul_point(m, v3(1.0f, 0.0f, 0.0f));
-	check(close_to(r.z, -1.0f), "90 degrees about y sends x to -z");
+	VEC_SET(c, 1.0f, 0.0f, 0.0f);
+	m4_mul_point(m, c, r);
+	check(close_to(r[Z], -1.0f), "90 degrees about y sends x to -z");
 
 	m4_perspective(m, 1.0f, 1.5f, 0.1f, 100.0f);
 	check(m4_invert(n, m) == 1, "a projection matrix is invertible");
@@ -132,8 +146,13 @@ test_frustum(void)
 	    "a box behind the camera is not");
 	check(fr_test_aabb(&f, far_min, far_max) == 0,
 	    "a box past the far plane is not");
-	check(fr_test_sphere(&f, v3(0.0f, 0.0f, -5.0f), 1.0f) == 1,
-	    "a sphere in front is visible");
+	{
+		vector centre;
+
+		VEC_SET(centre, 0.0f, 0.0f, -5.0f);
+		check(fr_test_sphere(&f, centre, 1.0f) == 1,
+		    "a sphere in front is visible");
+	}
 }
 
 static void
@@ -168,48 +187,76 @@ test_collision(void)
 	struct aabb a;
 	struct aabb b;
 	struct aabb wall;
-	struct vec3 push;
-	struct vec3 moved;
+	vector push;
+	vector moved;
+	vector centre;
+	vector half;
+	vector origin;
+	vector dir;
+	vector t0;
+	vector t1;
+	vector t2;
 	float t;
 	int ground;
 
-	a = coll_MakeAabb(v3(0.0f, 0.0f, 0.0f), v3(1.0f, 1.0f, 1.0f));
-	b = coll_MakeAabb(v3(1.5f, 0.0f, 0.0f), v3(1.0f, 1.0f, 1.0f));
+	VEC_ZERO(centre);
+	VEC_SET(half, 1.0f, 1.0f, 1.0f);
+	coll_MakeAabb(centre, half, &a);
+	VEC_SET(centre, 1.5f, 0.0f, 0.0f);
+	coll_MakeAabb(centre, half, &b);
 	check(coll_AabbAabb(&a, &b) == 1, "overlapping boxes overlap");
 
-	b = coll_MakeAabb(v3(5.0f, 0.0f, 0.0f), v3(1.0f, 1.0f, 1.0f));
+	VEC_SET(centre, 5.0f, 0.0f, 0.0f);
+	coll_MakeAabb(centre, half, &b);
 	check(coll_AabbAabb(&a, &b) == 0, "distant boxes do not");
-	check(coll_PointAabb(v3(0.5f, 0.5f, 0.5f), &a) == 1,
-	    "a point inside is inside");
-	check(coll_PointAabb(v3(9.0f, 0.0f, 0.0f), &a) == 0,
-	    "a point outside is outside");
 
-	check(coll_SphereAabb(v3(1.5f, 0.0f, 0.0f), 1.0f, &a, &push) == 1,
+	VEC_SET(centre, 0.5f, 0.5f, 0.5f);
+	check(coll_PointAabb(centre, &a) == 1, "a point inside is inside");
+	VEC_SET(centre, 9.0f, 0.0f, 0.0f);
+	check(coll_PointAabb(centre, &a) == 0, "a point outside is outside");
+
+	VEC_SET(centre, 1.5f, 0.0f, 0.0f);
+	check(coll_SphereAabb(centre, 1.0f, &a, push) == 1,
 	    "a sphere touching the box is reported");
-	check(push.x > 0.0f, "and is pushed out along +x");
+	check(push[X] > 0.0f, "and is pushed out along +x");
 
-	check(coll_RayAabb(v3(-5.0f, 0.0f, 0.0f), v3(1.0f, 0.0f, 0.0f), &a,
-	    &t) == 1, "a ray at the box hits it");
+	VEC_SET(origin, -5.0f, 0.0f, 0.0f);
+	VEC_SET(dir, 1.0f, 0.0f, 0.0f);
+	check(coll_RayAabb(origin, dir, &a, &t) == 1,
+	    "a ray at the box hits it");
 	check(close_to(t, 4.0f), "at the near face");
-	check(coll_RayAabb(v3(-5.0f, 9.0f, 0.0f), v3(1.0f, 0.0f, 0.0f), &a,
-	    &t) == 0, "a ray over the box misses");
 
-	check(coll_RayTri(v3(0.0f, 0.0f, -2.0f), v3(0.0f, 0.0f, 1.0f),
-	    v3(-1.0f, -1.0f, 0.0f), v3(1.0f, -1.0f, 0.0f),
-	    v3(0.0f, 1.0f, 0.0f), &t) == 1, "a ray hits the triangle");
+	VEC_SET(origin, -5.0f, 9.0f, 0.0f);
+	check(coll_RayAabb(origin, dir, &a, &t) == 0,
+	    "a ray over the box misses");
+
+	VEC_SET(origin, 0.0f, 0.0f, -2.0f);
+	VEC_SET(dir, 0.0f, 0.0f, 1.0f);
+	VEC_SET(t0, -1.0f, -1.0f, 0.0f);
+	VEC_SET(t1, 1.0f, -1.0f, 0.0f);
+	VEC_SET(t2, 0.0f, 1.0f, 0.0f);
+	check(coll_RayTri(origin, dir, t0, t1, t2, &t) == 1,
+	    "a ray hits the triangle");
 	check(close_to(t, 2.0f), "at the right distance");
 
 	/*  Walk into a wall: the x part of the motion is eaten, the z part
 	 *  survives.  This is the one behaviour a player will notice.
 	 */
-	wall = coll_MakeAabb(v3(2.0f, 0.0f, 0.0f), v3(0.5f, 2.0f, 4.0f));
-	a = coll_MakeAabb(v3(0.0f, 0.0f, 0.0f), v3(0.5f, 1.0f, 0.5f));
-	moved = coll_MoveAabb(a, v3(5.0f, 0.0f, 1.0f), &wall, 1, &ground);
-	check(moved.x < 1.1f, "movement into the wall is stopped");
-	check(moved.z > 0.5f, "movement along it is not");
+	VEC_SET(centre, 2.0f, 0.0f, 0.0f);
+	VEC_SET(half, 0.5f, 2.0f, 4.0f);
+	coll_MakeAabb(centre, half, &wall);
+	VEC_ZERO(centre);
+	VEC_SET(half, 0.5f, 1.0f, 0.5f);
+	coll_MakeAabb(centre, half, &a);
 
-	moved = coll_MoveAabb(a, v3(0.0f, -5.0f, 0.0f), &wall, 1, &ground);
-	check(close_to(moved.y, -5.0f), "free fall is not blocked sideways");
+	VEC_SET(dir, 5.0f, 0.0f, 1.0f);
+	coll_MoveAabb(&a, dir, &wall, 1, &ground, moved);
+	check(moved[X] < 1.1f, "movement into the wall is stopped");
+	check(moved[Z] > 0.5f, "movement along it is not");
+
+	VEC_SET(dir, 0.0f, -5.0f, 0.0f);
+	coll_MoveAabb(&a, dir, &wall, 1, &ground, moved);
+	check(close_to(moved[Y], -5.0f), "free fall is not blocked sideways");
 }
 
 static void
@@ -220,33 +267,55 @@ test_world(void)
 	float proj[16];
 	float viewproj[16];
 	struct aabb solids[8];
+	struct aabb tmp;
+	vector centre;
+	vector half;
+	vector eye;
+	vector a0;
+	vector a1;
+	vector a2;
+	vector a3;
 	int list[16];
 	int n;
 	int here;
 	int there;
 
 	wld_Clear(&w);
-	here = wld_AddSector(&w, coll_MakeAabb(v3(0.0f, 2.0f, 0.0f),
-	    v3(8.0f, 2.0f, 8.0f)), 1, 1);
-	wld_AddSolid(&w, here, coll_MakeAabb(v3(0.0f, 1.0f, 0.0f),
-	    v3(1.0f, 1.0f, 1.0f)));
-	there = wld_AddSector(&w, coll_MakeAabb(v3(0.0f, 2.0f, 16.0f),
-	    v3(8.0f, 2.0f, 8.0f)), 2, 1);
-	wld_AddSolid(&w, there, coll_MakeAabb(v3(0.0f, 1.0f, 16.0f),
-	    v3(1.0f, 1.0f, 1.0f)));
-	wld_AddPortal(&w, here, there, v3(-2.0f, 0.0f, 8.0f),
-	    v3(2.0f, 0.0f, 8.0f), v3(2.0f, 3.0f, 8.0f),
-	    v3(-2.0f, 3.0f, 8.0f));
+	VEC_SET(centre, 0.0f, 2.0f, 0.0f);
+	VEC_SET(half, 8.0f, 2.0f, 8.0f);
+	coll_MakeAabb(centre, half, &tmp);
+	here = wld_AddSector(&w, &tmp, 1, 1);
+	VEC_SET(centre, 0.0f, 1.0f, 0.0f);
+	VEC_SET(half, 1.0f, 1.0f, 1.0f);
+	coll_MakeAabb(centre, half, &tmp);
+	wld_AddSolid(&w, here, &tmp);
 
-	check(wld_SectorAt(&w, v3(0.0f, 1.0f, 0.0f)) == here,
-	    "a point finds its sector");
-	check(wld_SectorAt(&w, v3(0.0f, 1.0f, 16.0f)) == there,
-	    "and the other one");
-	check(wld_SectorAt(&w, v3(100.0f, 0.0f, 0.0f)) == -1,
+	VEC_SET(centre, 0.0f, 2.0f, 16.0f);
+	VEC_SET(half, 8.0f, 2.0f, 8.0f);
+	coll_MakeAabb(centre, half, &tmp);
+	there = wld_AddSector(&w, &tmp, 2, 1);
+	VEC_SET(centre, 0.0f, 1.0f, 16.0f);
+	VEC_SET(half, 1.0f, 1.0f, 1.0f);
+	coll_MakeAabb(centre, half, &tmp);
+	wld_AddSolid(&w, there, &tmp);
+
+	VEC_SET(a0, -2.0f, 0.0f, 8.0f);
+	VEC_SET(a1, 2.0f, 0.0f, 8.0f);
+	VEC_SET(a2, 2.0f, 3.0f, 8.0f);
+	VEC_SET(a3, -2.0f, 3.0f, 8.0f);
+	wld_AddPortal(&w, here, there, a0, a1, a2, a3);
+
+	VEC_SET(centre, 0.0f, 1.0f, 0.0f);
+	check(wld_SectorAt(&w, centre) == here, "a point finds its sector");
+	VEC_SET(centre, 0.0f, 1.0f, 16.0f);
+	check(wld_SectorAt(&w, centre) == there, "and the other one");
+	VEC_SET(centre, 100.0f, 0.0f, 0.0f);
+	check(wld_SectorAt(&w, centre) == -1,
 	    "a point outside every sector is nowhere");
 
 	/*  Looking towards the doorway: both sectors are drawn.  */
-	m4_fps_view(view, v3(0.0f, 1.7f, 0.0f), 3.14159f, 0.0f);
+	VEC_SET(eye, 0.0f, 1.7f, 0.0f);
+	m4_fps_view(view, eye, 3.14159f, 0.0f);
 	m4_perspective(proj, 1.2f, 1.333f, 0.1f, 100.0f);
 	m4_mul(viewproj, proj, view);
 	n = wld_Visible(&w, here, viewproj, list, 16);
@@ -255,13 +324,102 @@ test_world(void)
 	/*  Turned around: the portal is behind us, so the far room is not
 	 *  drawn at all.  This is the entire point of the portal graph.
 	 */
-	m4_fps_view(view, v3(0.0f, 1.7f, 0.0f), 0.0f, 0.0f);
+	m4_fps_view(view, eye, 0.0f, 0.0f);
 	m4_mul(viewproj, proj, view);
 	n = wld_Visible(&w, here, viewproj, list, 16);
 	check(n == 1, "turning away hides the far sector");
 
 	n = wld_SolidsNear(&w, list, n, solids, 8);
 	check(n == 1, "only the near sector's solids come back");
+}
+
+/*  Камера и тело - разные точки, и движок это обязан выдерживать.
+ *  Проверка стоит здесь потому, что в первой версии демки они были одной
+ *  переменной, и никакой тест этого не ловил.
+ */
+static void
+test_camera_is_not_the_body(void)
+{
+	static struct world w;
+	struct aabb body_solids[8];
+	struct aabb cam_solids[8];
+	struct aabb tmp;
+	float view[16];
+	float proj[16];
+	float viewproj[16];
+	vector centre;
+	vector half;
+	vector a0;
+	vector a1;
+	vector a2;
+	vector a3;
+	int list[16];
+	int body_sector;
+	int cam_sector;
+	int here;
+	int there;
+	vector body_at;
+	vector cam_at;
+
+	wld_Clear(&w);
+	VEC_SET(centre, 0.0f, 2.0f, 0.0f);
+	VEC_SET(half, 8.0f, 2.0f, 8.0f);
+	coll_MakeAabb(centre, half, &tmp);
+	here = wld_AddSector(&w, &tmp, 1, 1);
+	VEC_SET(centre, 3.0f, 1.0f, 0.0f);
+	VEC_SET(half, 1.0f, 1.0f, 1.0f);
+	coll_MakeAabb(centre, half, &tmp);
+	wld_AddSolid(&w, here, &tmp);
+
+	VEC_SET(centre, 0.0f, 2.0f, 16.0f);
+	VEC_SET(half, 8.0f, 2.0f, 8.0f);
+	coll_MakeAabb(centre, half, &tmp);
+	there = wld_AddSector(&w, &tmp, 2, 1);
+	VEC_SET(centre, 0.0f, 1.0f, 16.0f);
+	VEC_SET(half, 1.0f, 1.0f, 1.0f);
+	coll_MakeAabb(centre, half, &tmp);
+	wld_AddSolid(&w, there, &tmp);
+	VEC_SET(centre, 5.0f, 1.0f, 20.0f);
+	coll_MakeAabb(centre, half, &tmp);
+	wld_AddSolid(&w, there, &tmp);
+
+	VEC_SET(a0, -2.0f, 0.0f, 8.0f);
+	VEC_SET(a1, 2.0f, 0.0f, 8.0f);
+	VEC_SET(a2, 2.0f, 3.0f, 8.0f);
+	VEC_SET(a3, -2.0f, 3.0f, 8.0f);
+	wld_AddPortal(&w, here, there, a0, a1, a2, a3);
+	wld_AddPortal(&w, there, here, a1, a0, a3, a2);
+
+	/*  Персонаж только прошёл проём, камера от третьего лица ещё в
+	 *  предыдущей комнате. Обычное положение дел, не крайний случай.
+	 */
+	VEC_SET(body_at, 0.0f, 1.0f, 10.0f);
+	VEC_SET(cam_at, 0.0f, 2.0f, 5.0f);
+
+	body_sector = wld_SectorAt(&w, body_at);
+	cam_sector = wld_SectorAt(&w, cam_at);
+	check(body_sector == there, "тело в дальней комнате");
+	check(cam_sector == here, "камера ещё в ближней");
+	check(body_sector != cam_sector, "и это разные секторы");
+
+	check(wld_SolidsNear(&w, &body_sector, 1, body_solids, 8) == 2,
+	    "столкновения берутся вокруг тела");
+	check(wld_SolidsNear(&w, &cam_sector, 1, cam_solids, 8) == 1,
+	    "а не вокруг камеры");
+
+	/*  Видимость, наоборот, считается от камеры: рисуется то, что
+	 *  видно ей, а не то, что видно персонажу.
+	 */
+	m4_fps_view(view, cam_at, 3.14159f, 0.0f);
+	m4_perspective(proj, 1.2f, 1.333f, 0.1f, 100.0f);
+	m4_mul(viewproj, proj, view);
+	check(wld_Visible(&w, cam_sector, viewproj, list, 16) == 2,
+	    "из камеры видны обе комнаты");
+
+	m4_fps_view(view, cam_at, 0.0f, 0.0f);
+	m4_mul(viewproj, proj, view);
+	check(wld_Visible(&w, cam_sector, viewproj, list, 16) == 1,
+	    "камера отвернулась - дальней комнаты нет, где бы ни стояло тело");
 }
 
 static void
@@ -447,6 +605,9 @@ test_wav_and_mixer(void)
 	static short out[64 * 2];
 	struct wav w;
 	short *samples;
+	vector ear;
+	vector front;
+	vector far_right;
 	int i;
 	int loud;
 
@@ -476,7 +637,9 @@ test_wav_and_mixer(void)
 	check(w.pcm == samples, "16 bit samples are used in place");
 
 	snd_Init(44100);
-	snd_Listener(v3(0.0f, 0.0f, 0.0f), v3(0.0f, 0.0f, -1.0f));
+	VEC_ZERO(ear);
+	VEC_SET(front, 0.0f, 0.0f, -1.0f);
+	snd_Listener(ear, front);
 	snd_SetRange(2.0f, 50.0f);
 
 	check(snd_Play2D(&w, 1.0f, 1) >= 0, "a voice starts");
@@ -500,7 +663,8 @@ test_wav_and_mixer(void)
 	check(loud == 0, "and silence when nothing plays");
 
 	/*  Far away on the right: quieter, and louder in the right ear.  */
-	snd_Play(&w, v3(30.0f, 0.0f, 0.0f), 1.0f, 1);
+	VEC_SET(far_right, 30.0f, 0.0f, 0.0f);
+	snd_Play(&w, far_right, 1.0f, 1);
 	snd_Mix(out, 64);
 	check(out[1] != 0 || out[3] != 0, "a distant source is audible");
 
@@ -517,6 +681,7 @@ main(void)
 	test_arena();
 	test_collision();
 	test_world();
+	test_camera_is_not_the_body();
 	test_tga();
 	test_obj();
 	test_obj_numbers();

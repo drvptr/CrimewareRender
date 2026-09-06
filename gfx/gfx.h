@@ -57,7 +57,7 @@ void gfx_FreeMesh(unsigned int mesh);
 
 /*  STATE.  Set once per frame, not per object.  */
 void gfx_SetCamera(const float view[16], const float proj[16]);
-void gfx_SetLight(struct vec3 direction, float ambient);
+void gfx_SetLight(const vector direction, float ambient);
 void gfx_SetFog(float r, float g, float b, float start, float end);
 /* NOTE:  end <= start turns fog off.  Fog is not decoration here: it is
  *	  what hides the far clip plane when the world streams in.
@@ -69,7 +69,7 @@ void gfx_SetFog(float r, float g, float b, float start, float end);
  */
 void gfx_DrawMesh(unsigned int mesh, const float model[16],
     unsigned int tex, const float rgba[4], int first, int count);
-void gfx_DrawSprite(struct vec3 centre, float w, float h, unsigned int tex,
+void gfx_DrawSprite(const vector centre, float w, float h, unsigned int tex,
     const float rgba[4]);
 
 /*  2D, in pixels, origin top left.  Menus, HUD, subtitles.  */

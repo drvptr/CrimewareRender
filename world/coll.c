@@ -1,37 +1,33 @@
 #include <math.h>
 #include "coll.h"
 
-struct aabb
-coll_MakeAabb(struct vec3 centre, struct vec3 half)
+void
+coll_MakeAabb(const vector centre, const vector half, struct aabb *out)
 {
-	struct aabb b;
+	int i;
 
-	b.min[0] = centre.x - half.x;
-	b.min[1] = centre.y - half.y;
-	b.min[2] = centre.z - half.z;
-	b.max[0] = centre.x + half.x;
-	b.max[1] = centre.y + half.y;
-	b.max[2] = centre.z + half.z;
-	return b;
-}
-
-struct vec3
-coll_AabbCentre(const struct aabb *b)
-{
-	return v3((b->min[0] + b->max[0]) * 0.5f,
-	    (b->min[1] + b->max[1]) * 0.5f,
-	    (b->min[2] + b->max[2]) * 0.5f);
+	for (i = 0; i < 3; i++) {
+		out->min[i] = centre[i] - half[i];
+		out->max[i] = centre[i] + half[i];
+	}
 }
 
 void
-coll_AabbGrow(struct aabb *b, struct vec3 p)
+coll_AabbCentre(const struct aabb *b, vector out)
 {
-	float v[3];
 	int i;
 
-	v[0] = p.x;
-	v[1] = p.y;
-	v[2] = p.z;
+	for (i = 0; i < 3; i++)
+		out[i] = (b->min[i] + b->max[i]) * 0.5f;
+}
+
+void
+coll_AabbGrow(struct aabb *b, const vector p)
+{
+	const float *v;
+	int i;
+
+	v = p;
 	for (i = 0; i < 3; i++) {
 		if (v[i] < b->min[i])
 			b->min[i] = v[i];
@@ -55,14 +51,12 @@ coll_AabbAabb(const struct aabb *a, const struct aabb *b)
 }
 
 int
-coll_PointAabb(struct vec3 p, const struct aabb *b)
+coll_PointAabb(const vector p, const struct aabb *b)
 {
-	float v[3];
+	const float *v;
 	int i;
 
-	v[0] = p.x;
-	v[1] = p.y;
-	v[2] = p.z;
+	v = p;
 	for (i = 0; i < 3; i++) {
 		if (v[i] < b->min[i] || v[i] > b->max[i])
 			return 0;
@@ -71,18 +65,16 @@ coll_PointAabb(struct vec3 p, const struct aabb *b)
 }
 
 int
-coll_SphereAabb(struct vec3 centre, float radius, const struct aabb *b,
-    struct vec3 *push_out)
+coll_SphereAabb(const vector centre, float radius, const struct aabb *b,
+    vector push_out)
 {
-	float c[3];
+	const float *c;
 	float nearest[3];
 	float d[3];
 	float dist;
 	int i;
 
-	c[0] = centre.x;
-	c[1] = centre.y;
-	c[2] = centre.z;
+	c = centre;
 	for (i = 0; i < 3; i++)
 		nearest[i] = m3_clampf(c[i], b->min[i], b->max[i]);
 
@@ -96,8 +88,7 @@ coll_SphereAabb(struct vec3 centre, float radius, const struct aabb *b,
 		return 1;
 
 	if (dist > 0.000001f) {
-		*push_out = v3_scale(v3(d[0], d[1], d[2]),
-		    (radius - dist) / dist);
+		vec_scalar_mul(d, (radius - dist) / dist, push_out);
 		return 1;
 	}
 
@@ -128,23 +119,18 @@ coll_SphereAabb(struct vec3 centre, float radius, const struct aabb *b,
 				sign = 1;
 			}
 		}
-		*push_out = v3(0.0f, 0.0f, 0.0f);
-		if (axis == 0)
-			push_out->x = (best + radius) * (float)sign;
-		else if (axis == 1)
-			push_out->y = (best + radius) * (float)sign;
-		else
-			push_out->z = (best + radius) * (float)sign;
+		VEC_ZERO(push_out);
+		push_out[axis] = (best + radius) * (float)sign;
 	}
 	return 1;
 }
 
 int
-coll_RayAabb(struct vec3 origin, struct vec3 dir, const struct aabb *b,
+coll_RayAabb(const vector origin, const vector dir, const struct aabb *b,
     float *t_out)
 {
-	float o[3];
-	float d[3];
+	const float *o;
+	const float *d;
 	float tmin;
 	float tmax;
 	float t1;
@@ -152,12 +138,8 @@ coll_RayAabb(struct vec3 origin, struct vec3 dir, const struct aabb *b,
 	float swap;
 	int i;
 
-	o[0] = origin.x;
-	o[1] = origin.y;
-	o[2] = origin.z;
-	d[0] = dir.x;
-	d[1] = dir.y;
-	d[2] = dir.z;
+	o = origin;
+	d = dir;
 
 	tmin = 0.0f;
 	tmax = 1e30f;
@@ -187,39 +169,39 @@ coll_RayAabb(struct vec3 origin, struct vec3 dir, const struct aabb *b,
 }
 
 int
-coll_RayTri(struct vec3 origin, struct vec3 dir, struct vec3 a, struct vec3 b,
-    struct vec3 c, float *t_out)
+coll_RayTri(const vector origin, const vector dir, const vector a,
+    const vector b, const vector c, float *t_out)
 {
-	struct vec3 e1;
-	struct vec3 e2;
-	struct vec3 pv;
-	struct vec3 tv;
-	struct vec3 qv;
+	vector e1;
+	vector e2;
+	vector pv;
+	vector tv;
+	vector qv;
 	float det;
 	float inv;
 	float u;
 	float v;
 	float t;
 
-	e1 = v3_sub(b, a);
-	e2 = v3_sub(c, a);
-	pv = v3_cross(dir, e2);
-	det = v3_dot(e1, pv);
+	vec_sub(b, a, e1);
+	vec_sub(c, a, e2);
+	vec_cross(dir, e2, pv);
+	det = vec_dot(e1, pv);
 	if (det > -0.000001f && det < 0.000001f)
 		return 0;
 
 	inv = 1.0f / det;
-	tv = v3_sub(origin, a);
-	u = v3_dot(tv, pv) * inv;
+	vec_sub(origin, a, tv);
+	u = vec_dot(tv, pv) * inv;
 	if (u < 0.0f || u > 1.0f)
 		return 0;
 
-	qv = v3_cross(tv, e1);
-	v = v3_dot(dir, qv) * inv;
+	vec_cross(tv, e1, qv);
+	v = vec_dot(dir, qv) * inv;
 	if (v < 0.0f || u + v > 1.0f)
 		return 0;
 
-	t = v3_dot(e2, qv) * inv;
+	t = vec_dot(e2, qv) * inv;
 	if (t < 0.0f)
 		return 0;
 	if (t_out != 0)
@@ -228,7 +210,7 @@ coll_RayTri(struct vec3 origin, struct vec3 dir, struct vec3 a, struct vec3 b,
 }
 
 int
-coll_RayMesh(struct vec3 origin, struct vec3 dir,
+coll_RayMesh(const vector origin, const vector dir,
     const struct gfx_vertex *verts, const unsigned short *index, int nindex,
     const float model[16], float *t_out)
 {
@@ -236,23 +218,23 @@ coll_RayMesh(struct vec3 origin, struct vec3 dir,
 	int found;
 	float best;
 	float t;
-	struct vec3 a;
-	struct vec3 b;
-	struct vec3 c;
+	vector a;
+	vector b;
+	vector c;
 
 	found = 0;
 	best = 1e30f;
 	for (i = 0; i + 2 < nindex; i += 3) {
-		a = v3(verts[index[i]].x, verts[index[i]].y,
+		VEC_SET(a, verts[index[i]].x, verts[index[i]].y,
 		    verts[index[i]].z);
-		b = v3(verts[index[i + 1]].x, verts[index[i + 1]].y,
+		VEC_SET(b, verts[index[i + 1]].x, verts[index[i + 1]].y,
 		    verts[index[i + 1]].z);
-		c = v3(verts[index[i + 2]].x, verts[index[i + 2]].y,
+		VEC_SET(c, verts[index[i + 2]].x, verts[index[i + 2]].y,
 		    verts[index[i + 2]].z);
 		if (model != 0) {
-			a = m4_mul_point(model, a);
-			b = m4_mul_point(model, b);
-			c = m4_mul_point(model, c);
+			m4_mul_point(model, a, a);
+			m4_mul_point(model, b, b);
+			m4_mul_point(model, c, c);
 		}
 		if (coll_RayTri(origin, dir, a, b, c, &t) && t < best) {
 			best = t;
@@ -269,12 +251,12 @@ coll_RayMesh(struct vec3 origin, struct vec3 dir,
  *  centre.  One ray test replaces the whole separating axis dance.
  */
 static int
-sweep_one(struct vec3 centre, struct vec3 half, struct vec3 move,
+sweep_one(const vector centre, const vector half, const vector move,
     const struct aabb *solid, float *t_out, int *axis_out)
 {
 	struct aabb grown;
-	float o[3];
-	float d[3];
+	const float *o;
+	const float *d;
 	float t1;
 	float t2;
 	float swap;
@@ -287,19 +269,13 @@ sweep_one(struct vec3 centre, struct vec3 half, struct vec3 move,
 		grown.min[i] = solid->min[i];
 		grown.max[i] = solid->max[i];
 	}
-	grown.min[0] -= half.x;
-	grown.max[0] += half.x;
-	grown.min[1] -= half.y;
-	grown.max[1] += half.y;
-	grown.min[2] -= half.z;
-	grown.max[2] += half.z;
+	for (i = 0; i < 3; i++) {
+		grown.min[i] -= half[i];
+		grown.max[i] += half[i];
+	}
 
-	o[0] = centre.x;
-	o[1] = centre.y;
-	o[2] = centre.z;
-	d[0] = move.x;
-	d[1] = move.y;
-	d[2] = move.z;
+	o = centre;
+	d = move;
 
 	tmin = 0.0f;
 	tmax = 1.0f;
@@ -334,14 +310,14 @@ sweep_one(struct vec3 centre, struct vec3 half, struct vec3 move,
 	return 1;
 }
 
-struct vec3
-coll_MoveAabb(struct aabb body, struct vec3 move, const struct aabb *solids,
-    int nsolids, int *hit_ground)
+void
+coll_MoveAabb(const struct aabb *body, const vector move_in,
+    const struct aabb *solids, int nsolids, int *hit_ground, vector out)
 {
-	struct vec3 centre;
-	struct vec3 half;
-	struct vec3 total;
-	struct vec3 step;
+	vector centre;
+	vector half;
+	vector move;
+	vector step;
 	float best_t;
 	int best_axis;
 	float t;
@@ -349,11 +325,11 @@ coll_MoveAabb(struct aabb body, struct vec3 move, const struct aabb *solids,
 	int i;
 	int pass;
 
-	centre = coll_AabbCentre(&body);
-	half = v3((body.max[0] - body.min[0]) * 0.5f,
-	    (body.max[1] - body.min[1]) * 0.5f,
-	    (body.max[2] - body.min[2]) * 0.5f);
-	total = v3(0.0f, 0.0f, 0.0f);
+	coll_AabbCentre(body, centre);
+	for (i = 0; i < 3; i++)
+		half[i] = (body->max[i] - body->min[i]) * 0.5f;
+	VEC_ASSIGMENT(move_in, move);
+	VEC_ZERO(out);
 	if (hit_ground != 0)
 		*hit_ground = 0;
 
@@ -381,23 +357,17 @@ coll_MoveAabb(struct aabb body, struct vec3 move, const struct aabb *solids,
 				best_t = 0.0f;
 		}
 
-		step = v3_scale(move, best_t);
-		centre = v3_add(centre, step);
-		total = v3_add(total, step);
+		vec_scalar_mul(move, best_t, step);
+		vec_add(centre, step, centre);
+		vec_add(out, step, out);
 
 		if (best_axis < 0)
 			break;
 
-		if (best_axis == 0)
-			move.x = 0.0f;
-		else if (best_axis == 1) {
-			if (move.y < 0.0f && hit_ground != 0)
-				*hit_ground = 1;
-			move.y = 0.0f;
-		} else
-			move.z = 0.0f;
+		if (best_axis == Y && move[Y] < 0.0f && hit_ground != 0)
+			*hit_ground = 1;
+		move[best_axis] = 0.0f;
 
-		move = v3_scale(move, 1.0f - best_t);
+		vec_scalar_mul(move, 1.0f - best_t, move);
 	}
-	return total;
 }

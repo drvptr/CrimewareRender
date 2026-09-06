@@ -1,13 +1,14 @@
 /*
- *	@(#)coll.h	1.0
+ *	@(#)coll.h	2.0-вектор
  *
- *  Collision, and nothing that could be called physics.  There is no mass,
- *  no restitution, no solver and no time step: you ask "did this hit that"
- *  and "how far can I move before I hit something", and the answers are
- *  exact and stateless.
+ *  Ветка "вектор": ничего крупнее указателя по значению не передаётся,
+ *  поэтому struct aabb теперь везде ходит адресом, а функции, которые
+ *  раньше возвращали вектор, пишут его в последний аргумент.
  *
- *  This is what a game of this size actually needs.  Rigid body dynamics
- *  is a project in itself and it makes level design harder, not easier.
+ *  Коллизии, и ничего, что можно назвать физикой. Нет массы, нет упругости,
+ *  нет решателя и нет шага по времени: ты спрашиваешь "столкнулось ли это
+ *  с тем" и "как далеко можно уйти до препятствия", и ответы точные и без
+ *  состояния.
  */
 #ifndef COLL_H_SENTRY
 #define COLL_H_SENTRY
@@ -20,40 +21,40 @@ struct aabb {
 	float max[3];
 };
 
-struct aabb coll_MakeAabb(struct vec3 centre, struct vec3 half);
-struct vec3 coll_AabbCentre(const struct aabb *b);
-void coll_AabbGrow(struct aabb *b, struct vec3 p);
+void coll_MakeAabb(const vector centre, const vector half, struct aabb *out);
+void coll_AabbCentre(const struct aabb *b, vector out);
+void coll_AabbGrow(struct aabb *b, const vector p);
 
 int coll_AabbAabb(const struct aabb *a, const struct aabb *b);
-int coll_PointAabb(struct vec3 p, const struct aabb *b);
-int coll_SphereAabb(struct vec3 centre, float radius, const struct aabb *b,
-    struct vec3 *push_out);
-/* NOTE:  push_out (may be 0) receives the shortest vector that separates
- *	  the sphere from the box.  That is the whole of "do not walk into
- *	  the wall" for a character that is a sphere.
+int coll_PointAabb(const vector p, const struct aabb *b);
+int coll_SphereAabb(const vector centre, float radius, const struct aabb *b,
+    vector push_out);
+/* NOTE:  push_out (можно 0) получает кратчайший вектор, выталкивающий сферу
+ *	  из коробки. Это и есть всё "не ходи сквозь стену" для персонажа,
+ *	  который считается шаром.
  */
 
-int coll_RayAabb(struct vec3 origin, struct vec3 dir, const struct aabb *b,
+int coll_RayAabb(const vector origin, const vector dir, const struct aabb *b,
     float *t_out);
-int coll_RayTri(struct vec3 origin, struct vec3 dir, struct vec3 a,
-    struct vec3 b, struct vec3 c, float *t_out);
+int coll_RayTri(const vector origin, const vector dir, const vector a,
+    const vector b, const vector c, float *t_out);
 
-int coll_RayMesh(struct vec3 origin, struct vec3 dir,
+int coll_RayMesh(const vector origin, const vector dir,
     const struct gfx_vertex *verts, const unsigned short *index, int nindex,
     const float model[16], float *t_out);
-/* NOTE:  brute force over the triangles.  For a gun shot against one
- *	  object per frame that is free; do not call it for every bullet
- *	  against the whole level without a sector to narrow it down first.
+/* NOTE:  перебор всех треугольников. Для выстрела по одному объекту за кадр
+ *	  это бесплатно; по всему уровню без сужения сектором - нет.
  */
 
-struct vec3 coll_MoveAabb(struct aabb body, struct vec3 move,
-    const struct aabb *solids, int nsolids, int *hit_ground);
+void coll_MoveAabb(const struct aabb *body, const vector move,
+    const struct aabb *solids, int nsolids, int *hit_ground, vector out);
 /* USAGE:
-	pos = v3_add(pos, coll_MoveAabb(body, wish, solids, n, &on_floor));
+	coll_MoveAabb(&body, wish, solids, n, &on_floor, delta);
+	vec_add(pos, delta, pos);
    NOTE:
-	swept box against static boxes, three passes, sliding along whatever
-	it hits.  hit_ground (may be 0) is set when the blocked direction
-	was downward, which is all a jump needs to know.
+	свип коробки против неподвижных коробок, три прохода, со скольжением
+	вдоль того, во что упёрлись. hit_ground (можно 0) выставляется, когда
+	заблокированное направление было вниз - это всё, что нужно прыжку.
 */
 
 #endif /* COLL_H_SENTRY */

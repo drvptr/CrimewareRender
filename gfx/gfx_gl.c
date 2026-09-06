@@ -49,7 +49,12 @@
 #define GL_COMPILE_STATUS		0x8B81
 #define GL_LINK_STATUS			0x8B82
 #define GL_TEXTURE0			0x84C0
+#define GL_VENDOR			0x1F00
+#define GL_RENDERER			0x1F01
+#define GL_VERSION			0x1F02
+#define GL_SHADING_LANGUAGE_VERSION	0x8B8C
 
+static const unsigned char *(*p_glGetString)(unsigned int);
 static void (*p_glClear)(unsigned int);
 static void (*p_glClearColor)(float, float, float, float);
 static void (*p_glEnable)(unsigned int);
@@ -129,6 +134,16 @@ static int screen_h = 480;
 static int draw_calls;
 static unsigned int quad_mesh;
 
+/*  The normal goes through the model matrix with w = 0, which drops the
+ *  translation column and leaves rotation and scale.  Writing this as
+ *  mat3(u_model) needs GLSL 1.20, and a driver with no #version directive
+ *  compiles as 1.10 - so this form is the portable one, and it is also
+ *  what GLES2 accepts.  (Non-uniform scale would want the inverse
+ *  transpose; it would have wanted it with mat3() too.)
+ *
+ *  gl_Position is written and then never read back either: GLSL ES treats
+ *  it as write only, so the clip position is kept in a local.
+ */
 static const char *vertex_src =
 "attribute vec3 a_pos;\n"
 "attribute vec3 a_nrm;\n"
@@ -143,14 +158,15 @@ static const char *vertex_src =
 "varying vec4 v_col;\n"
 "varying float v_dist;\n"
 "void main(){\n"
-"  gl_Position = u_mvp * vec4(a_pos, 1.0);\n"
+"  vec4 clip = u_mvp * vec4(a_pos, 1.0);\n"
+"  gl_Position = clip;\n"
 "  vec3 n = normalize(vec3(u_model * vec4(a_nrm, 0.0)));\n"
 "  float d = max(dot(n, -u_lightdir), 0.0);\n"
 "  float l = min(u_ambient + d * (1.0 - u_ambient), 1.0);\n"
 "  l = mix(l, 1.0, u_unlit);\n"
 "  v_col = vec4(u_tint.rgb * l, u_tint.a);\n"
 "  v_uv = a_uv;\n"
-"  v_dist = gl_Position.w;\n"
+"  v_dist = clip.w;\n"
 "}\n";
 
 static const char *fragment_src =
@@ -190,6 +206,7 @@ static const char *fragment_src =
 static int
 load_entry_points(void)
 {
+	p_glGetString = plat_GlProc("glGetString");
 	p_glClear = plat_GlProc("glClear");
 	p_glClearColor = plat_GlProc("glClearColor");
 	p_glEnable = plat_GlProc("glEnable");
@@ -246,8 +263,30 @@ load_entry_points(void)
 #pragma GCC diagnostic pop
 #endif
 
+/*  Which driver, and which shading language it actually gave us.  When a
+ *  shader will not compile this line is the first thing worth knowing, so
+ *  it is printed once at startup rather than hidden behind a flag.
+ */
+static void
+report_driver(void)
+{
+	const unsigned char *renderer;
+	const unsigned char *version;
+	const unsigned char *glsl;
+
+	if (p_glGetString == 0)
+		return;
+	renderer = p_glGetString(GL_RENDERER);
+	version = p_glGetString(GL_VERSION);
+	glsl = p_glGetString(GL_SHADING_LANGUAGE_VERSION);
+	fprintf(stderr, "gfx: %s | GL %s | GLSL %s\n",
+	    renderer != 0 ? (const char *)renderer : "?",
+	    version != 0 ? (const char *)version : "?",
+	    glsl != 0 ? (const char *)glsl : "?");
+}
+
 static unsigned int
-compile(unsigned int kind, const char *src)
+compile(unsigned int kind, const char *src, const char *what)
 {
 	unsigned int id;
 	int ok;
@@ -261,7 +300,8 @@ compile(unsigned int kind, const char *src)
 	if (!ok) {
 		log[0] = 0;
 		p_glGetShaderInfoLog(id, (int)sizeof log, 0, log);
-		fprintf(stderr, "gfx: shader: %s\n", log);
+		fprintf(stderr, "gfx: %s shader will not compile:\n%s\n",
+		    what, log);
 		return 0;
 	}
 	return id;
@@ -275,8 +315,8 @@ build_program(void)
 	int ok;
 	char log[1024];
 
-	vs = compile(GL_VERTEX_SHADER, vertex_src);
-	fs = compile(GL_FRAGMENT_SHADER, fragment_src);
+	vs = compile(GL_VERTEX_SHADER, vertex_src, "vertex");
+	fs = compile(GL_FRAGMENT_SHADER, fragment_src, "fragment");
 	if (vs == 0 || fs == 0)
 		return 0;
 
@@ -331,6 +371,7 @@ gfx_Init(void)
 
 	if (!load_entry_points())
 		return 0;
+	report_driver();
 	if (!build_program())
 		return 0;
 
@@ -362,7 +403,12 @@ gfx_Init(void)
 	m4_identity(cur_view);
 	m4_identity(cur_proj);
 	m4_identity(cur_viewproj);
-	gfx_SetLight(v3(-0.4f, -0.8f, -0.4f), 0.35f);
+	{
+		vector light;
+
+		VEC_SET(light, -0.4f, -0.8f, -0.4f);
+		gfx_SetLight(light, 0.35f);
+	}
 	gfx_SetFog(0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
 	return 1;
 }
@@ -536,14 +582,14 @@ gfx_SetCamera(const float view[16], const float proj[16])
 }
 
 void
-gfx_SetLight(struct vec3 direction, float ambient)
+gfx_SetLight(const vector direction, float ambient)
 {
-	struct vec3 d;
+	vector d;
 
-	d = v3_norm(direction);
+	vec_norm(direction, d);
 	p_glUseProgram(prog);
 	if (u_lightdir >= 0)
-		p_glUniform3f(u_lightdir, d.x, d.y, d.z);
+		p_glUniform3f(u_lightdir, d[X], d[Y], d[Z]);
 	if (u_ambient >= 0)
 		p_glUniform1f(u_ambient, ambient);
 }
@@ -624,13 +670,13 @@ gfx_DrawMesh(unsigned int handle, const float model[16], unsigned int tex,
 }
 
 void
-gfx_DrawSprite(struct vec3 centre, float w, float h, unsigned int tex,
+gfx_DrawSprite(const vector centre, float w, float h, unsigned int tex,
     const float rgba[4])
 {
 	struct gl_mesh *m;
 	float model[16];
-	struct vec3 right;
-	struct vec3 up;
+	vector right;
+	vector up;
 
 	m = mesh_at(quad_mesh);
 	if (m == 0)
@@ -639,19 +685,19 @@ gfx_DrawSprite(struct vec3 centre, float w, float h, unsigned int tex,
 	/*  A billboard is the camera's own axes, which are the rows of the
 	 *  view matrix, scaled and moved to the sprite.
 	 */
-	right = v3(cur_view[0], cur_view[4], cur_view[8]);
-	up = v3(cur_view[1], cur_view[5], cur_view[9]);
+	VEC_SET(right, cur_view[0], cur_view[4], cur_view[8]);
+	VEC_SET(up, cur_view[1], cur_view[5], cur_view[9]);
 
 	m4_identity(model);
-	model[0] = right.x * w;
-	model[1] = right.y * w;
-	model[2] = right.z * w;
-	model[4] = up.x * h;
-	model[5] = up.y * h;
-	model[6] = up.z * h;
-	model[12] = centre.x - (right.x * w + up.x * h) * 0.5f;
-	model[13] = centre.y - (right.y * w + up.y * h) * 0.5f;
-	model[14] = centre.z - (right.z * w + up.z * h) * 0.5f;
+	model[0] = right[X] * w;
+	model[1] = right[Y] * w;
+	model[2] = right[Z] * w;
+	model[4] = up[X] * h;
+	model[5] = up[Y] * h;
+	model[6] = up[Z] * h;
+	model[12] = centre[X] - (right[X] * w + up[X] * h) * 0.5f;
+	model[13] = centre[Y] - (right[Y] * w + up[Y] * h) * 0.5f;
+	model[14] = centre[Z] - (right[Z] * w + up[Z] * h) * 0.5f;
 
 	p_glDisable(GL_CULL_FACE);
 	draw_indexed(m, model, tex, rgba, 0, 6, 1.0f);
