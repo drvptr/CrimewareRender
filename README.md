@@ -1,39 +1,69 @@
-## WHAT IS THIS
-This is a module for 3D software rendering of models in the wavefront obj format. 
+# Минималистичный монолитный движок
 
-## DEPENDENCIES
-- Windows: gcc (mingw)
-- FreeBSD: Xlib
+Каркас 3D-движка на C99. Никаких зависимостей: собирается против `libX11`
+и `libm`, а OpenGL и ALSA открываются через `dlopen` в рантайме — бинарник
+стартует и на машине, где их нет.
 
-## STRUCTURE
-- **IO/io.h** - header that deals with input and output to the screen. Here, abstractions such as "window" and functions above the window are defined.The implementation of a set of functions over a "window" as well as the "window" type itself can be defined differently depending on the framework. The implementation of the functions itself is in the .c file. Thus, for Unix systems the implementation is done in io_xlib.c, and for Windows in io_winapi.c. However, the function profiles must be the same everywhere.
+Не C89: геометрия `buf` требует `unsigned long long`, а математика —
+`sqrtf`. Оба требования пришли из твоего же `buffer.h`, так что спорить не
+о чем.
+
 ```
-window *io_InitWindow();		//Constructor-func for window_t
-int io_GetWidth(window *w);	//Acsessors-funcs for window_t
-int io_GetHeight(window *w);
-void io_SetPixel(window *w, int x, int y, int color); //the basic function of drawing a pixel (output) (whatever the pixel is, and whatever the color is)
-void io_UpdateFrame(window *w); //function for updating the video buffer (if any)
-void io_CloseWindow(window *w);	//Destructor-func window_t
-controls *io_InitControl();	//Constructor-func for control_t
-void io_PollControls(window *w, controls *c, int mode); //polling control (input) devices (whatever these devices are)
-#define io_FreeControl(control) (free(control)) //Destructor-func/macro control_t
+make          # демо (x11 + opengl)  ->  ./demo-bin
+make check    # тесты, без дисплея   ->  77 проверок
+make PLAT=null GFX=null   # то же демо вообще без окна
 ```
-Controls are a structure that contains an array of pressed keys, an array of activated keys, and mouse (or other pointer) coordinates. (Mouse buttons belong to the array of keys)
-- **GRAPHIC/algebra.h** - A module that defines operations on vectors. Also defined in this module is the type of fixed-point number and operations on it.
-- **GRAPHIC/tgatool.h** - TGA image parser. Also can draw on the image, find out its size, and take the color by coordinates from the image.
-- **GRAPHIC/wavefront.h** - Wavefront parser. Also can recalculate normals (if there are no normals, for example), rotate an object, scale, move. Can print a log for debugging.
-- **GRAPHIC/basic.h** - Graphic primitives module. Here are the main two-dimensional algorithms for drawing lines (Bresenham algorithm), for drawing triangles, for clipping triangles and lines. For drawing gradients and text. It is worth paying attention to the function for drawing a triangle. As a parameter, it accepts a function of the plotter type. Plotter is a function with a profile almost like SetPixel(), but it has an additional argument, the *void userdata. What is the point: the function for drawing a triangle only calculates the coordinates of the triangle by which the pixel needs to be painted. And how to paint it is decided by this function.
+
+## Что это
+
+Движок-фреймворк, а не редактор с рантаймом. Нет разделения «ресурсы против
+движка»: уровень, ИИ, логика, меню — обычный C-код, который ты компилируешь
+вместе с движком. Движок даёт окно, ввод, треугольники, звук, коллизии и
+загрузчики форматов. Всё остальное — твоё.
+
+Графика уровня PS2: текстуры, прозрачность, вершинное освещение (Гуро),
+туман, спрайты, 2D. Никакого antialiasing, теней в реальном времени,
+постобработки и физики.
+
+## Раскладка
+
 ```
-//EXAMPLE:
-
-void DefaultPlot(window *w,int x,int y,int color,void *userdata){
-	io_SetPixel(w,x,y,color);
-};
-
-//THEN WE CAN CALL TRIANGLE DRAWER
-DrawTriangle(w,300,300,100,100,220,500,DefaultPlot,0xFFAA2020,NULL);
+buf/      твой buffer.c — геометрия буфера, на которой описаны текстуры
+core/     m3 (векторы, матрицы, фрустум), arena (память), app (главный цикл)
+plat/     окно, ввод, время, звуковое устройство   [x11 | null]
+gfx/      рендер за интерфейсом без единого GL-типа [gl | null]
+asset/    tga, obj, wav, van — байты на входе, буферы на выходе
+world/    секторы и порталы, коллизии
+snd/      программный микшер
+ui/       immediate-mode GUI, таймлайн катсцен
+tools/    экспортёр из Blender, генератор шрифтового атласа, xxd-обёртка
+demo/     игра-пример: две комнаты, портал, коллизии, модель
+test/     то, что проверяется без экрана
+docs/     эта документация
 ```
-- **GRAPHIC/render3d.h** -This module contains a dynamic perspective camera. The camera is described as simply another coordinate system into which all points are projected. The camera also contains a depth buffer. The depth buffer is a two-dimensional array of integers, the size of the screen, where each cell indicates how far away the camera is from the camera. It is possible to render the buffer separately for debugging.
-- **main.c** - Demonstration program. Just open this file and comment what you don't need.
 
-- Glory to https://www.siberianbattalion.com/
+## Два правила, из которых следует всё остальное
+
+**Движок не открывает файлы и не зовёт malloc.** Ни одного `open()`,
+`read()`, `fopen()` или `malloc()` внутри движка. Ты даёшь ему байты — из
+`read()`, из `mmap()`, из массива, сделанного `xxd -i` — и один блок памяти,
+из которого загрузчики отрезают куски (`core/arena.c`). Поэтому один и тот же
+код работает и с файлами, и со встроенными в бинарник ресурсами, и в
+freestanding-окружении.
+
+**Низкоуровневщина живёт ровно в двух файлах.** `grep -r "X11\|windows.h"`
+находит только `plat/`. `grep -r "gl[A-Z]"` — только `gfx/gfx_gl.c`. Замена
+оконной системы или рендера — это новый файл в `plat/` или `gfx/` и один
+флаг в `make`.
+
+## Документация
+
+- `docs/01-architecture.md` — слои, кто кого зовёт, почему именно так
+- `docs/02-game.md` — как написать игру: полный скелет и разбор
+- `docs/03-formats.md` — tga, obj, wav, van, встраивание ресурсов, пределы
+- `docs/04-decisions.md` — спорные решения и аргументы против них
+- `docs/05-roadmap.md` — чего ещё нет, в порядке важности
+
+## Лицензия
+
+BSD-3-Clause, как и `buf`.
