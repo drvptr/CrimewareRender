@@ -320,12 +320,10 @@ static void
 smooth_normals(struct obj_mesh *m)
 {
 	int i;
-	vector a;
-	vector b;
-	vector c;
-	vector n;
-	vector e1;
-	vector e2;
+	struct vec3 a;
+	struct vec3 b;
+	struct vec3 c;
+	struct vec3 n;
 	struct gfx_vertex *v;
 	float len;
 
@@ -336,24 +334,21 @@ smooth_normals(struct obj_mesh *m)
 	}
 	for (i = 0; i + 2 < m->nindex; i += 3) {
 		v = m->verts;
-		VEC_SET(a, v[m->index[i]].x, v[m->index[i]].y,
-		    v[m->index[i]].z);
-		VEC_SET(b, v[m->index[i + 1]].x, v[m->index[i + 1]].y,
+		a = v3(v[m->index[i]].x, v[m->index[i]].y, v[m->index[i]].z);
+		b = v3(v[m->index[i + 1]].x, v[m->index[i + 1]].y,
 		    v[m->index[i + 1]].z);
-		VEC_SET(c, v[m->index[i + 2]].x, v[m->index[i + 2]].y,
+		c = v3(v[m->index[i + 2]].x, v[m->index[i + 2]].y,
 		    v[m->index[i + 2]].z);
-		vec_sub(b, a, e1);
-		vec_sub(c, a, e2);
-		vec_cross(e1, e2, n);
-		v[m->index[i]].nx += n[X];
-		v[m->index[i]].ny += n[Y];
-		v[m->index[i]].nz += n[Z];
-		v[m->index[i + 1]].nx += n[X];
-		v[m->index[i + 1]].ny += n[Y];
-		v[m->index[i + 1]].nz += n[Z];
-		v[m->index[i + 2]].nx += n[X];
-		v[m->index[i + 2]].ny += n[Y];
-		v[m->index[i + 2]].nz += n[Z];
+		n = v3_cross(v3_sub(b, a), v3_sub(c, a));
+		v[m->index[i]].nx += n.x;
+		v[m->index[i]].ny += n.y;
+		v[m->index[i]].nz += n.z;
+		v[m->index[i + 1]].nx += n.x;
+		v[m->index[i + 1]].ny += n.y;
+		v[m->index[i + 1]].nz += n.z;
+		v[m->index[i + 2]].nx += n.x;
+		v[m->index[i + 2]].ny += n.y;
+		v[m->index[i + 2]].nz += n.z;
 	}
 	for (i = 0; i < m->nverts; i++) {
 		v = &m->verts[i];

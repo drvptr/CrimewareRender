@@ -141,73 +141,62 @@ m4_ortho(float out[16], float left, float right, float bottom, float top,
 }
 
 void
-m4_look_at(float out[16], const vector eye, const vector at,
-    const vector up)
+m4_look_at(float out[16], struct vec3 eye, struct vec3 at, struct vec3 up)
 {
-	vector f;
-	vector s;
-	vector u;
-	vector tmp;
+	struct vec3 f;
+	struct vec3 s;
+	struct vec3 u;
 
-	vec_sub(at, eye, tmp);
-	vec_norm(tmp, f);
-	vec_cross(f, up, tmp);
-	vec_norm(tmp, s);
-	vec_cross(s, f, u);
+	f = v3_norm(v3_sub(at, eye));
+	s = v3_norm(v3_cross(f, up));
+	u = v3_cross(s, f);
 
 	m4_identity(out);
-	out[0] = s[X];
-	out[4] = s[Y];
-	out[8] = s[Z];
-	out[1] = u[X];
-	out[5] = u[Y];
-	out[9] = u[Z];
-	out[2] = -f[X];
-	out[6] = -f[Y];
-	out[10] = -f[Z];
-	out[12] = -vec_dot(s, eye);
-	out[13] = -vec_dot(u, eye);
-	out[14] = vec_dot(f, eye);
+	out[0] = s.x;
+	out[4] = s.y;
+	out[8] = s.z;
+	out[1] = u.x;
+	out[5] = u.y;
+	out[9] = u.z;
+	out[2] = -f.x;
+	out[6] = -f.y;
+	out[10] = -f.z;
+	out[12] = -v3_dot(s, eye);
+	out[13] = -v3_dot(u, eye);
+	out[14] = v3_dot(f, eye);
 }
 
 void
-m4_fps_view(float out[16], const vector eye, float yaw, float pitch)
+m4_fps_view(float out[16], struct vec3 eye, float yaw, float pitch)
 {
-	vector dir;
-	vector at;
-	vector up;
+	struct vec3 dir;
 
-	VEC_SET(dir, cosf(pitch) * sinf(yaw), sinf(pitch),
-	    -cosf(pitch) * cosf(yaw));
-	vec_add(eye, dir, at);
-	VEC_SET(up, 0.0f, 1.0f, 0.0f);
-	m4_look_at(out, eye, at, up);
+	dir.x = cosf(pitch) * sinf(yaw);
+	dir.y = sinf(pitch);
+	dir.z = -cosf(pitch) * cosf(yaw);
+	m4_look_at(out, eye, v3_add(eye, dir), v3(0.0f, 1.0f, 0.0f));
 }
 
-void
-m4_mul_point(const float m[16], const vector p, vector out)
+struct vec3
+m4_mul_point(const float m[16], struct vec3 p)
 {
-	float x;
-	float y;
-	float z;
+	struct vec3 r;
 
-	x = m[0] * p[X] + m[4] * p[Y] + m[8] * p[Z] + m[12];
-	y = m[1] * p[X] + m[5] * p[Y] + m[9] * p[Z] + m[13];
-	z = m[2] * p[X] + m[6] * p[Y] + m[10] * p[Z] + m[14];
-	VEC_SET(out, x, y, z);
+	r.x = m[0] * p.x + m[4] * p.y + m[8] * p.z + m[12];
+	r.y = m[1] * p.x + m[5] * p.y + m[9] * p.z + m[13];
+	r.z = m[2] * p.x + m[6] * p.y + m[10] * p.z + m[14];
+	return r;
 }
 
-void
-m4_mul_dir(const float m[16], const vector d, vector out)
+struct vec3
+m4_mul_dir(const float m[16], struct vec3 d)
 {
-	float x;
-	float y;
-	float z;
+	struct vec3 r;
 
-	x = m[0] * d[X] + m[4] * d[Y] + m[8] * d[Z];
-	y = m[1] * d[X] + m[5] * d[Y] + m[9] * d[Z];
-	z = m[2] * d[X] + m[6] * d[Y] + m[10] * d[Z];
-	VEC_SET(out, x, y, z);
+	r.x = m[0] * d.x + m[4] * d.y + m[8] * d.z;
+	r.y = m[1] * d.x + m[5] * d.y + m[9] * d.z;
+	r.z = m[2] * d.x + m[6] * d.y + m[10] * d.z;
+	return r;
 }
 
 int
@@ -333,14 +322,14 @@ fr_test_aabb(const struct frustum *f, const float min[3], const float max[3])
 }
 
 int
-fr_test_sphere(const struct frustum *f, const vector c, float r)
+fr_test_sphere(const struct frustum *f, struct vec3 c, float r)
 {
 	int i;
 	float d;
 
 	for (i = 0; i < 6; i++) {
-		d = f->p[i][0] * c[X] + f->p[i][1] * c[Y] +
-		    f->p[i][2] * c[Z] + f->p[i][3];
+		d = f->p[i][0] * c.x + f->p[i][1] * c.y + f->p[i][2] * c.z +
+		    f->p[i][3];
 		if (d < -r)
 			return 0;
 	}

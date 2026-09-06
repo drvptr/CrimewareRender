@@ -50,12 +50,12 @@ static char pool[48 * 1024 * 1024];
 #define UNITS 3
 
 struct unit {
-	vector pos;		/* центр коробки столкновений	*/
-	vector velocity;
+	struct vec3 pos;	/* центр коробки столкновений	*/
+	struct vec3 velocity;
 	float yaw;		/* куда развёрнута модель	*/
 	int on_floor;
 	int has_order;		/* идёт в точку, а не по кнопкам */
-	vector order;
+	struct vec3 order;
 	float colour[4];
 };
 
@@ -73,7 +73,7 @@ struct game {
 	int controlled;
 
 	struct camera cam;
-	vector map_focus;	/* точка, над которой висит вид сверху */
+	struct vec3 map_focus;	/* точка, над которой висит вид сверху */
 	int mouse_look;
 };
 
@@ -118,13 +118,11 @@ struct builder {
 };
 
 static void
-quad(struct builder *b, const vector a, const vector c, const vector d,
-    const vector e, float tiles)
+quad(struct builder *b, struct vec3 a, struct vec3 c, struct vec3 d,
+    struct vec3 e, float tiles)
 {
-	vector n;
-	vector e1;
-	vector e2;
-	const float *corner[4];
+	struct vec3 n;
+	struct vec3 corner[4];
 	float u[4];
 	float w[4];
 	int k;
@@ -138,18 +136,15 @@ quad(struct builder *b, const vector a, const vector c, const vector d,
 	u[2] = tiles;     w[2] = tiles;
 	u[3] = 0.0f;      w[3] = tiles;
 
-	vec_sub(c, a, e1);
-	vec_sub(e, a, e2);
-	vec_cross(e1, e2, n);
-	vec_norm(n, n);
+	n = v3_norm(v3_cross(v3_sub(c, a), v3_sub(e, a)));
 
 	for (k = 0; k < 4; k++) {
-		b->v[b->nv + k].x = corner[k][X];
-		b->v[b->nv + k].y = corner[k][Y];
-		b->v[b->nv + k].z = corner[k][Z];
-		b->v[b->nv + k].nx = n[X];
-		b->v[b->nv + k].ny = n[Y];
-		b->v[b->nv + k].nz = n[Z];
+		b->v[b->nv + k].x = corner[k].x;
+		b->v[b->nv + k].y = corner[k].y;
+		b->v[b->nv + k].z = corner[k].z;
+		b->v[b->nv + k].nx = n.x;
+		b->v[b->nv + k].ny = n.y;
+		b->v[b->nv + k].nz = n.z;
 		b->v[b->nv + k].u = u[k];
 		b->v[b->nv + k].v = w[k];
 	}
@@ -167,59 +162,41 @@ quad(struct builder *b, const vector a, const vector c, const vector d,
 /*  Комната - это коробка, видимая изнутри, поэтому каждый четырёхугольник
  *  обходится в обратную сторону. Одна стена пропускается там, где дверь.
  */
-/*  Массив нельзя написать выражением внутри вызова, поэтому каждый угол
- *  становится именованной переменной. На master эти четыре стены были
- *  восемью строками с v3(...) прямо в аргументах.
- */
 static void
 room(struct builder *b, float x0, float z0, float x1, float z1, float h,
     int door_side)
 {
-	vector p00;
-	vector p10;
-	vector p11;
-	vector p01;
-	vector t00;
-	vector t10;
-	vector t11;
-	vector t01;
-
-	VEC_SET(p00, x0, 0.0f, z0);
-	VEC_SET(p10, x1, 0.0f, z0);
-	VEC_SET(p11, x1, 0.0f, z1);
-	VEC_SET(p01, x0, 0.0f, z1);
-	VEC_SET(t00, x0, h, z0);
-	VEC_SET(t10, x1, h, z0);
-	VEC_SET(t11, x1, h, z1);
-	VEC_SET(t01, x0, h, z1);
-
-	quad(b, p01, p11, p10, p00, 4.0f);
-	quad(b, t00, t10, t11, t01, 4.0f);
+	quad(b, v3(x0, 0.0f, z1), v3(x1, 0.0f, z1), v3(x1, 0.0f, z0),
+	    v3(x0, 0.0f, z0), 4.0f);
+	quad(b, v3(x0, h, z0), v3(x1, h, z0), v3(x1, h, z1),
+	    v3(x0, h, z1), 4.0f);
 
 	if (door_side != 0)
-		quad(b, p00, p10, t10, t00, 2.0f);
+		quad(b, v3(x0, 0.0f, z0), v3(x1, 0.0f, z0), v3(x1, h, z0),
+		    v3(x0, h, z0), 2.0f);
 	if (door_side != 1)
-		quad(b, p11, p01, t01, t11, 2.0f);
+		quad(b, v3(x1, 0.0f, z1), v3(x0, 0.0f, z1), v3(x0, h, z1),
+		    v3(x1, h, z1), 2.0f);
 	if (door_side != 2)
-		quad(b, p01, p00, t00, t01, 2.0f);
+		quad(b, v3(x0, 0.0f, z1), v3(x0, 0.0f, z0), v3(x0, h, z0),
+		    v3(x0, h, z1), 2.0f);
 	if (door_side != 3)
-		quad(b, p10, p11, t11, t10, 2.0f);
+		quad(b, v3(x1, 0.0f, z0), v3(x1, 0.0f, z1), v3(x1, h, z1),
+		    v3(x1, h, z0), 2.0f);
 }
 
-/*  Возвращать struct aabb по значению в этой ветке нельзя: 24 байта.
- *  Поэтому коробка заполняется через выходной аргумент, и каждый вызов
- *  становится двумя строками вместо одной.
- */
-static void
-box(struct aabb *out, float x0, float y0, float z0, float x1, float y1,
-    float z1)
+static struct aabb
+box(float x0, float y0, float z0, float x1, float y1, float z1)
 {
-	out->min[0] = x0;
-	out->min[1] = y0;
-	out->min[2] = z0;
-	out->max[0] = x1;
-	out->max[1] = y1;
-	out->max[2] = z1;
+	struct aabb b;
+
+	b.min[0] = x0;
+	b.min[1] = y0;
+	b.min[2] = z0;
+	b.max[0] = x1;
+	b.max[1] = y1;
+	b.max[2] = z1;
+	return b;
 }
 
 /*  Коробки рядом с точкой. Сектор считается для КАЖДОГО, кто двигается,
@@ -227,7 +204,7 @@ box(struct aabb *out, float x0, float y0, float z0, float x1, float y1,
  *  в другой комнате, чем персонаж, и это нормально.
  */
 static int
-solids_around(struct game *g, const vector at, struct aabb *out, int max)
+solids_around(struct game *g, struct vec3 at, struct aabb *out, int max)
 {
 	int here;
 	int all[16];
@@ -255,11 +232,6 @@ game_init(void *user)
 	void *pixels;
 	unsigned long long geo;
 	struct builder b;
-	struct aabb tmp;
-	vector a0;
-	vector a1;
-	vector a2;
-	vector a3;
 	long mark;
 	int here;
 	int there;
@@ -297,29 +269,30 @@ game_init(void *user)
 	g->room_mesh = gfx_MakeMesh(b.v, b.nv, b.i, b.ni, 0);
 
 	wld_Clear(&g->world);
+	here = wld_AddSector(&g->world,
+	    box(-8.0f, 0.0f, -8.0f, 8.0f, 4.0f, 8.0f), g->room_mesh,
+	    g->wall_tex);
+	wld_AddSolid(&g->world, here, box(-1.5f, 0.0f, -1.5f, 1.5f, 1.0f,
+	    1.5f));
+	wld_AddSolid(&g->world, here, box(4.0f, 0.0f, 2.0f, 6.0f, 2.0f,
+	    4.0f));
 
-	box(&tmp, -8.0f, 0.0f, -8.0f, 8.0f, 4.0f, 8.0f);
-	here = wld_AddSector(&g->world, &tmp, g->room_mesh, g->wall_tex);
-	box(&tmp, -1.5f, 0.0f, -1.5f, 1.5f, 1.0f, 1.5f);
-	wld_AddSolid(&g->world, here, &tmp);
-	box(&tmp, 4.0f, 0.0f, 2.0f, 6.0f, 2.0f, 4.0f);
-	wld_AddSolid(&g->world, here, &tmp);
+	there = wld_AddSector(&g->world,
+	    box(-8.0f, 0.0f, 8.0f, 8.0f, 4.0f, 24.0f), g->room_mesh,
+	    g->wall_tex);
+	wld_AddSolid(&g->world, there, box(-6.0f, 0.0f, 18.0f, -2.0f, 3.0f,
+	    22.0f));
 
-	box(&tmp, -8.0f, 0.0f, 8.0f, 8.0f, 4.0f, 24.0f);
-	there = wld_AddSector(&g->world, &tmp, g->room_mesh, g->wall_tex);
-	box(&tmp, -6.0f, 0.0f, 18.0f, -2.0f, 3.0f, 22.0f);
-	wld_AddSolid(&g->world, there, &tmp);
-
-	VEC_SET(a0, -2.0f, 0.0f, 8.0f);
-	VEC_SET(a1, 2.0f, 0.0f, 8.0f);
-	VEC_SET(a2, 2.0f, 3.0f, 8.0f);
-	VEC_SET(a3, -2.0f, 3.0f, 8.0f);
-	wld_AddPortal(&g->world, here, there, a0, a1, a2, a3);
-	wld_AddPortal(&g->world, there, here, a1, a0, a3, a2);
+	wld_AddPortal(&g->world, here, there, v3(-2.0f, 0.0f, 8.0f),
+	    v3(2.0f, 0.0f, 8.0f), v3(2.0f, 3.0f, 8.0f),
+	    v3(-2.0f, 3.0f, 8.0f));
+	wld_AddPortal(&g->world, there, here, v3(2.0f, 0.0f, 8.0f),
+	    v3(-2.0f, 0.0f, 8.0f), v3(-2.0f, 3.0f, 8.0f),
+	    v3(2.0f, 3.0f, 8.0f));
 
 	for (i = 0; i < UNITS; i++) {
-		VEC_SET(g->unit[i].pos, -4.0f + (float)i * 4.0f, 0.9f, 4.0f);
-		VEC_ZERO(g->unit[i].velocity);
+		g->unit[i].pos = v3(-4.0f + (float)i * 4.0f, 0.9f, 4.0f);
+		g->unit[i].velocity = v3(0.0f, 0.0f, 0.0f);
 		g->unit[i].yaw = 0.0f;
 		g->unit[i].has_order = 0;
 		g->unit[i].colour[3] = 1.0f;
@@ -336,12 +309,11 @@ game_init(void *user)
 	g->controlled = 0;
 
 	cam_Init(&g->cam, CAM_FIRST);
-	VEC_SET(g->map_focus, 0.0f, 0.0f, 4.0f);
+	g->map_focus = v3(0.0f, 0.0f, 4.0f);
 	g->mouse_look = 1;
 	plat_GrabMouse(1);
 
-	VEC_SET(a0, -0.5f, -1.0f, -0.3f);
-	gfx_SetLight(a0, 0.35f);
+	gfx_SetLight(v3(-0.5f, -1.0f, -0.3f), 0.35f);
 	gfx_SetFog(0.05f, 0.06f, 0.08f, 12.0f, 40.0f);
 
 	printf("demo: arena %ld of %ld bytes used\n", g->mem.used,
@@ -355,50 +327,42 @@ game_init(void *user)
  *  ведёт ли его приказ или он вообще стоит: движение одинаковое.
  */
 static void
-unit_step(struct game *g, struct unit *u, const vector wish_in, float dt)
+unit_step(struct game *g, struct unit *u, struct vec3 wish, float dt)
 {
 	struct aabb body;
 	struct aabb near_solids[64];
 	int nsolids;
-	vector wish;
-	vector to;
-	vector half;
-	vector step;
-	vector delta;
+	struct vec3 to;
 	float distance;
 
-	VEC_ASSIGMENT(wish_in, wish);
-
 	if (u->has_order) {
-		vec_sub(u->order, u->pos, to);
-		to[Y] = 0.0f;
-		distance = vec_abs(to);
+		to = v3_sub(u->order, u->pos);
+		to.y = 0.0f;
+		distance = v3_len(to);
 		if (distance < 0.4f)
 			u->has_order = 0;
 		else
-			vec_scalar_mul(to, 3.0f / distance, wish);
+			wish = v3_scale(v3_scale(to, 1.0f / distance), 3.0f);
 	}
 
-	if (vec_abs(wish) > 0.01f)
-		u->yaw = atan2f(wish[X], -wish[Z]);
+	if (v3_len(wish) > 0.01f)
+		u->yaw = atan2f(wish.x, -wish.z);
 
-	u->velocity[X] = wish[X];
-	u->velocity[Z] = wish[Z];
-	u->velocity[Y] -= 18.0f * dt;
+	u->velocity.x = wish.x;
+	u->velocity.z = wish.z;
+	u->velocity.y -= 18.0f * dt;
 
 	nsolids = solids_around(g, u->pos, near_solids, 64);
-	VEC_SET(half, 0.35f, 0.9f, 0.35f);
-	coll_MakeAabb(u->pos, half, &body);
-	vec_scalar_mul(u->velocity, dt, step);
-	coll_MoveAabb(&body, step, near_solids, nsolids, &u->on_floor, delta);
-	vec_add(u->pos, delta, u->pos);
+	body = coll_MakeAabb(u->pos, v3(0.35f, 0.9f, 0.35f));
+	u->pos = v3_add(u->pos, coll_MoveAabb(body,
+	    v3_scale(u->velocity, dt), near_solids, nsolids, &u->on_floor));
 
 	/*  У комнат нет солида под полом, поэтому пол держится вручную.
 	 *  В уровне из .obj пол был бы такой же коробкой, как всё прочее.
 	 */
-	if (u->pos[Y] < 0.9f) {
-		u->pos[Y] = 0.9f;
-		u->velocity[Y] = 0.0f;
+	if (u->pos.y < 0.9f) {
+		u->pos.y = 0.9f;
+		u->velocity.y = 0.0f;
 		u->on_floor = 1;
 	}
 }
@@ -408,12 +372,10 @@ game_step(void *user, float dt)
 {
 	struct game *g;
 	const struct plat_input *in;
-	vector forward;
-	vector right;
-	vector wish;
-	vector pan;
-	vector zero;
-	vector cam_dir;
+	struct vec3 forward;
+	struct vec3 right;
+	struct vec3 wish;
+	struct vec3 pan;
 	struct aabb near_solids[64];
 	int nsolids;
 	int i;
@@ -443,49 +405,46 @@ game_step(void *user, float dt)
 	/*  Движение считается относительно взгляда КАМЕРЫ, а не персонажа:
 	 *  игрок жмёт W и ожидает, что пойдёт туда, куда смотрит экран.
 	 */
-	cam_Right(&g->cam, right);
-	VEC_SET(forward, right[Z], 0.0f, -right[X]);
+	right = cam_Right(&g->cam);
+	forward = v3(right.z, 0.0f, -right.x);
 
-	VEC_ZERO(wish);
+	wish = v3(0.0f, 0.0f, 0.0f);
 	if (in->hold['W'])
-		vec_add(wish, forward, wish);
+		wish = v3_add(wish, forward);
 	if (in->hold['S'])
-		vec_sub(wish, forward, wish);
+		wish = v3_sub(wish, forward);
 	if (in->hold['D'])
-		vec_add(wish, right, wish);
+		wish = v3_add(wish, right);
 	if (in->hold['A'])
-		vec_sub(wish, right, wish);
+		wish = v3_sub(wish, right);
 
 	speed = in->hold[PLAT_KEY_SHIFT] ? 8.0f : 4.0f;
-	vec_norm(wish, wish);
-	vec_scalar_mul(wish, speed, wish);
+	wish = v3_scale(v3_norm(wish), speed);
 
 	if (g->cam.mode == CAM_TOP) {
 		/*  Сверху клавиши ведут камеру, а не персонажа: камера ни к
 		 *  кому не привязана. Пробел отдаёт приказ идти в ту точку,
 		 *  над которой она висит.
 		 */
-		vec_scalar_mul(wish, dt * 2.5f, pan);
-		vec_add(g->map_focus, pan, g->map_focus);
-		g->map_focus[X] = m3_clampf(g->map_focus[X], -8.0f, 8.0f);
-		g->map_focus[Z] = m3_clampf(g->map_focus[Z], -8.0f, 24.0f);
+		pan = v3_scale(wish, dt * 2.5f);
+		g->map_focus = v3_add(g->map_focus, pan);
+		g->map_focus.x = m3_clampf(g->map_focus.x, -8.0f, 8.0f);
+		g->map_focus.z = m3_clampf(g->map_focus.z, -8.0f, 24.0f);
 
 		if (in->hit[' ']) {
 			g->unit[g->controlled].has_order = 1;
-			VEC_ASSIGMENT(g->map_focus,
-			    g->unit[g->controlled].order);
+			g->unit[g->controlled].order = g->map_focus;
 		}
-		VEC_ZERO(wish);
+		wish = v3(0.0f, 0.0f, 0.0f);
 	} else {
 		if (g->unit[g->controlled].on_floor && in->hold[' '])
-			g->unit[g->controlled].velocity[Y] = 6.0f;
+			g->unit[g->controlled].velocity.y = 6.0f;
 		g->unit[g->controlled].has_order = 0;
 	}
 
-	VEC_ZERO(zero);
 	for (i = 0; i < UNITS; i++)
 		unit_step(g, &g->unit[i],
-		    i == g->controlled ? wish : zero, dt);
+		    i == g->controlled ? wish : v3(0.0f, 0.0f, 0.0f), dt);
 
 	/*  Камера обновляется ПОСЛЕ подопечных, иначе она весь кадр
 	 *  показывает вчерашнее положение и картинка запаздывает.
@@ -502,8 +461,7 @@ game_step(void *user, float dt)
 		    nsolids);
 	}
 
-	cam_Forward(&g->cam, cam_dir);
-	snd_Listener(g->cam.pos, cam_dir);
+	snd_Listener(g->cam.pos, cam_Forward(&g->cam));
 }
 
 static void
@@ -519,7 +477,6 @@ game_draw(void *user, float alpha)
 	float scale[16];
 	float white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 	float mark[4] = { 1.0f, 0.9f, 0.3f, 0.9f };
-	vector focus_mark;
 	int sectors[16];
 	int nsectors;
 	int i;
@@ -555,8 +512,8 @@ game_draw(void *user, float alpha)
 
 			m4_rot_y(spin, g->unit[i].yaw);
 			m4_scale(scale, 0.004f, 0.004f, 0.004f);
-			m4_translate(move, g->unit[i].pos[X],
-			    g->unit[i].pos[Y] - 0.9f, g->unit[i].pos[Z]);
+			m4_translate(move, g->unit[i].pos.x,
+			    g->unit[i].pos.y - 0.9f, g->unit[i].pos.z);
 			m4_mul(model, spin, scale);
 			m4_mul(model, move, model);
 			gfx_DrawMesh(g->model_mesh, model, g->wall_tex,
@@ -565,11 +522,9 @@ game_draw(void *user, float alpha)
 	}
 
 	/*  Метка на точке, над которой висит камера сверху.  */
-	if (g->cam.mode == CAM_TOP) {
-		VEC_SET(focus_mark, g->map_focus[X], g->map_focus[Y] + 0.2f,
-		    g->map_focus[Z]);
-		gfx_DrawSprite(focus_mark, 0.6f, 0.6f, 0, mark);
-	}
+	if (g->cam.mode == CAM_TOP)
+		gfx_DrawSprite(v3(g->map_focus.x, g->map_focus.y + 0.2f,
+		    g->map_focus.z), 0.6f, 0.6f, 0, mark);
 
 	gui_Begin(app_Input());
 	if (g->cam.mode == CAM_FIRST) {

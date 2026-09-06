@@ -8,7 +8,7 @@ struct voice {
 	long step;		/* 16.16 source frames per output frame */
 	long position;		/* 16.16					*/
 	float gain;
-	vector at;
+	struct vec3 at;
 	int spatial;
 	int loop;
 	int busy;
@@ -16,8 +16,8 @@ struct voice {
 
 static struct voice voices[SND_VOICES];
 static int device_rate = 44100;
-static vector ear_pos;
-static vector ear_right;
+static struct vec3 ear_pos;
+static struct vec3 ear_right;
 static float range_ref = 4.0f;
 static float range_max = 60.0f;
 
@@ -29,22 +29,15 @@ snd_Init(int rate)
 	device_rate = rate > 0 ? rate : 44100;
 	for (i = 0; i < SND_VOICES; i++)
 		voices[i].busy = 0;
-	VEC_ZERO(ear_pos);
-	VEC_SET(ear_right, 1.0f, 0.0f, 0.0f);
+	ear_pos = v3(0.0f, 0.0f, 0.0f);
+	ear_right = v3(1.0f, 0.0f, 0.0f);
 }
 
 void
-snd_Listener(const vector position, const vector forward)
+snd_Listener(struct vec3 position, struct vec3 forward)
 {
-	vector up;
-	vector dir;
-	vector right;
-
-	VEC_ASSIGMENT(position, ear_pos);
-	VEC_SET(up, 0.0f, 1.0f, 0.0f);
-	vec_norm(forward, dir);
-	vec_cross(dir, up, right);
-	vec_norm(right, ear_right);
+	ear_pos = position;
+	ear_right = v3_norm(v3_cross(v3_norm(forward), v3(0.0f, 1.0f, 0.0f)));
 }
 
 void
@@ -82,12 +75,12 @@ start(const struct wav *sound, float gain, int loop)
 	v->loop = loop;
 	v->busy = 1;
 	v->spatial = 0;
-	VEC_ZERO(v->at);
+	v->at = v3(0.0f, 0.0f, 0.0f);
 	return i;
 }
 
 int
-snd_Play(const struct wav *sound, const vector position, float gain, int loop)
+snd_Play(const struct wav *sound, struct vec3 position, float gain, int loop)
 {
 	int id;
 
@@ -95,7 +88,7 @@ snd_Play(const struct wav *sound, const vector position, float gain, int loop)
 	if (id < 0)
 		return -1;
 	voices[id].spatial = 1;
-	VEC_ASSIGMENT(position, voices[id].at);
+	voices[id].at = position;
 	return id;
 }
 
@@ -106,11 +99,11 @@ snd_Play2D(const struct wav *sound, float gain, int loop)
 }
 
 void
-snd_Move(int voice, const vector position)
+snd_Move(int voice, struct vec3 position)
 {
 	if (voice < 0 || voice >= SND_VOICES)
 		return;
-	VEC_ASSIGMENT(position, voices[voice].at);
+	voices[voice].at = position;
 }
 
 void
@@ -150,8 +143,7 @@ snd_Busy(void)
 static void
 levels(const struct voice *v, float *left, float *right)
 {
-	vector delta;
-	vector unit;
+	struct vec3 delta;
 	float distance;
 	float attenuation;
 	float pan;
@@ -162,8 +154,8 @@ levels(const struct voice *v, float *left, float *right)
 		return;
 	}
 
-	vec_sub(v->at, ear_pos, delta);
-	distance = vec_abs(delta);
+	delta = v3_sub(v->at, ear_pos);
+	distance = v3_len(delta);
 
 	if (distance >= range_max) {
 		*left = 0.0f;
@@ -176,10 +168,8 @@ levels(const struct voice *v, float *left, float *right)
 		attenuation = range_ref / distance;
 
 	pan = 0.0f;
-	if (distance > 0.001f) {
-		vec_scalar_mul(delta, 1.0f / distance, unit);
-		pan = vec_dot(unit, ear_right);
-	}
+	if (distance > 0.001f)
+		pan = v3_dot(v3_scale(delta, 1.0f / distance), ear_right);
 	pan = m3_clampf(pan, -1.0f, 1.0f);
 
 	/*  Constant power: the two gains squared add up to one, so walking

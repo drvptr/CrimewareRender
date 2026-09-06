@@ -22,20 +22,20 @@
 #define SND_VOICES 32
 
 void snd_Init(int device_rate);
-void snd_Listener(const vector position, const vector forward);
+void snd_Listener(struct vec3 position, struct vec3 forward);
 void snd_SetRange(float reference, float maximum);
 /* NOTE:  full volume until `reference` metres, silent past `maximum`,
  *	  1/distance in between.  Two numbers, no model to configure.
  */
 
-int snd_Play(const struct wav *sound, const vector position, float gain,
+int snd_Play(const struct wav *sound, struct vec3 position, float gain,
     int loop);
 int snd_Play2D(const struct wav *sound, float gain, int loop);
 /* RETURN VALUE: a voice id, or -1 when all voices are busy.  A voice id is
  *		 valid until the sound ends; snd_Stop() on a finished voice
  *		 is harmless.
  */
-void snd_Move(int voice, const vector position);
+void snd_Move(int voice, struct vec3 position);
 void snd_Stop(int voice);
 void snd_StopAll(void);
 int snd_Busy(void);

@@ -21,13 +21,13 @@ note_length(struct cutscene *c, float at)
 }
 
 int
-cut_Camera(struct cutscene *c, float at, const vector eye, const vector look)
+cut_Camera(struct cutscene *c, float at, struct vec3 eye, struct vec3 look)
 {
 	if (c->nkeys >= CUT_MAX_KEYS)
 		return -1;
 	c->key[c->nkeys].at = at;
-	VEC_ASSIGMENT(eye, c->key[c->nkeys].eye);
-	VEC_ASSIGMENT(look, c->key[c->nkeys].look);
+	c->key[c->nkeys].eye = eye;
+	c->key[c->nkeys].look = look;
 	c->nkeys++;
 	note_length(c, at);
 	return 0;
@@ -124,10 +124,8 @@ cut_View(const struct cutscene *c, float view[16])
 	int a;
 	int b;
 	float t;
-	vector eye;
-	vector look;
-	vector tmp;
-	vector up;
+	struct vec3 eye;
+	struct vec3 look;
 
 	if (c->nkeys == 0) {
 		m4_identity(view);
@@ -152,16 +150,11 @@ cut_View(const struct cutscene *c, float view[16])
 	 */
 	t = t * t * (3.0f - 2.0f * t);
 
-	vec_sub(c->key[b].eye, c->key[a].eye, tmp);
-	vec_scalar_mul(tmp, t, tmp);
-	vec_add(c->key[a].eye, tmp, eye);
-
-	vec_sub(c->key[b].look, c->key[a].look, tmp);
-	vec_scalar_mul(tmp, t, tmp);
-	vec_add(c->key[a].look, tmp, look);
-
-	VEC_SET(up, 0.0f, 1.0f, 0.0f);
-	m4_look_at(view, eye, look, up);
+	eye = v3_add(c->key[a].eye,
+	    v3_scale(v3_sub(c->key[b].eye, c->key[a].eye), t));
+	look = v3_add(c->key[a].look,
+	    v3_scale(v3_sub(c->key[b].look, c->key[a].look), t));
+	m4_look_at(view, eye, look, v3(0.0f, 1.0f, 0.0f));
 }
 
 float
