@@ -1,69 +1,41 @@
-# Минималистичный монолитный движок
+# Minimalistic monolithic engine
 
-Каркас 3D-движка на C99. Никаких зависимостей: собирается против `libX11`
-и `libm`, а OpenGL и ALSA открываются через `dlopen` в рантайме — бинарник
-стартует и на машине, где их нет.
+A 3D engine framework written in C99. No dependencies: it builds against libX11
+and libm, and OpenGL and ALSA are opened via dlopen at runtime—the binary
+runs even on a machine that doesn't have them.
 
-Не C89: геометрия `buf` требует `unsigned long long`, а математика —
-`sqrtf`. Оба требования пришли из твоего же `buffer.h`, так что спорить не
-о чем.
+Not C89: the geometry of buf requires unsigned long long, and the math requires sqrtf. Both requirements come from your own buffer.h, so there's no point in arguing.
 
 ```
-make          # демо (x11 + opengl)  ->  ./demo-bin
-make check    # тесты, без дисплея   ->  77 проверок
-make PLAT=null GFX=null   # то же демо вообще без окна
+make # demo (x11 + opengl) -> ./demo-bin
+make check # tests, no display -> 77 checks
+make PLAT=null GFX=null # the same demo without a window
+``
+
+## What is this
+
+An engine framework, not an editor with a runtime. There's no division between resources and
+engine: the level, AI, logic, and menus are all regular C code that you compile
+along with the engine. The engine provides the window, input, triangles, sound, collisions, and
+format loaders. Everything else is yours.
+
+PS2-level graphics: textures, transparency, vertex lighting (Gouraud),
+fog, sprites, 2D. No antialiasing, real-time shadows,
+postprocessing, or physics.
+
+## Layout
+
 ```
-
-## Что это
-
-Движок-фреймворк, а не редактор с рантаймом. Нет разделения «ресурсы против
-движка»: уровень, ИИ, логика, меню — обычный C-код, который ты компилируешь
-вместе с движком. Движок даёт окно, ввод, треугольники, звук, коллизии и
-загрузчики форматов. Всё остальное — твоё.
-
-Графика уровня PS2: текстуры, прозрачность, вершинное освещение (Гуро),
-туман, спрайты, 2D. Никакого antialiasing, теней в реальном времени,
-постобработки и физики.
-
-## Раскладка
-
+buf/ your buffer.c — buffer geometry, where textures are described
+core/ m3 (vectors, matrices, frustum), arena (memory), app (main loop)
+plat/ window, input, time, sound device [x11 | null]
+gfx/ renderer behind the interface without a single GL type [gl | null]
+asset/ tga, obj, wav, van — input bytes, output buffers
+world/ sectors and portals, collisions
+snd/ software mixer
+ui/ immediate-mode GUI, cutscene timeline
+tools/ Blender exporter, font atlas generator, xxd wrapper
+demo/ example game: two rooms, portal, collisions, model
+test/ things that are tested off-screen
+docs/ this documentation
 ```
-buf/      твой buffer.c — геометрия буфера, на которой описаны текстуры
-core/     m3 (векторы, матрицы, фрустум), arena (память), app (главный цикл)
-plat/     окно, ввод, время, звуковое устройство   [x11 | null]
-gfx/      рендер за интерфейсом без единого GL-типа [gl | null]
-asset/    tga, obj, wav, van — байты на входе, буферы на выходе
-world/    секторы и порталы, коллизии
-snd/      программный микшер
-ui/       immediate-mode GUI, таймлайн катсцен
-tools/    экспортёр из Blender, генератор шрифтового атласа, xxd-обёртка
-demo/     игра-пример: две комнаты, портал, коллизии, модель
-test/     то, что проверяется без экрана
-docs/     эта документация
-```
-
-## Два правила, из которых следует всё остальное
-
-**Движок не открывает файлы и не зовёт malloc.** Ни одного `open()`,
-`read()`, `fopen()` или `malloc()` внутри движка. Ты даёшь ему байты — из
-`read()`, из `mmap()`, из массива, сделанного `xxd -i` — и один блок памяти,
-из которого загрузчики отрезают куски (`core/arena.c`). Поэтому один и тот же
-код работает и с файлами, и со встроенными в бинарник ресурсами, и в
-freestanding-окружении.
-
-**Низкоуровневщина живёт ровно в двух файлах.** `grep -r "X11\|windows.h"`
-находит только `plat/`. `grep -r "gl[A-Z]"` — только `gfx/gfx_gl.c`. Замена
-оконной системы или рендера — это новый файл в `plat/` или `gfx/` и один
-флаг в `make`.
-
-## Документация
-
-- `docs/01-architecture.md` — слои, кто кого зовёт, почему именно так
-- `docs/02-game.md` — как написать игру: полный скелет и разбор
-- `docs/03-formats.md` — tga, obj, wav, van, встраивание ресурсов, пределы
-- `docs/04-decisions.md` — спорные решения и аргументы против них
-- `docs/05-roadmap.md` — чего ещё нет, в порядке важности
-
-## Лицензия
-
-BSD-3-Clause, как и `buf`.
