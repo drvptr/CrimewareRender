@@ -144,7 +144,7 @@ static const char *vertex_src =
 "varying float v_dist;\n"
 "void main(){\n"
 "  gl_Position = u_mvp * vec4(a_pos, 1.0);\n"
-"  vec3 n = normalize(mat3(u_model) * a_nrm);\n"
+"  vec3 n = normalize(vec3(u_model * vec4(a_nrm, 0.0)));\n"
 "  float d = max(dot(n, -u_lightdir), 0.0);\n"
 "  float l = min(u_ambient + d * (1.0 - u_ambient), 1.0);\n"
 "  l = mix(l, 1.0, u_unlit);\n"
