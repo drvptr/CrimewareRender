@@ -6,8 +6,8 @@ cam_Init(struct camera *c, int mode)
 {
 	c->yaw = 0.0f;
 	c->pitch = 0.0f;
-	c->target = v3(0.0f, 0.0f, 0.0f);
-	c->pos = v3(0.0f, 0.0f, 0.0f);
+	VEC_ZERO(c->target);
+	VEC_ZERO(c->pos);
 	cam_SetMode(c, mode);
 }
 
@@ -45,38 +45,37 @@ cam_Look(struct camera *c, float dx, float dy)
 		c->pitch = m3_clampf(c->pitch, -1.4f, -0.3f);
 }
 
-struct vec3
-cam_Forward(const struct camera *c)
+void
+cam_Forward(const struct camera *c, vector out)
 {
-	struct vec3 d;
-
-	d.x = cosf(c->pitch) * sinf(c->yaw);
-	d.y = sinf(c->pitch);
-	d.z = -cosf(c->pitch) * cosf(c->yaw);
-	return d;
-}
-
-struct vec3
-cam_Right(const struct camera *c)
-{
-	return v3(cosf(c->yaw), 0.0f, sinf(c->yaw));
+	VEC_SET(out, cosf(c->pitch) * sinf(c->yaw), sinf(c->pitch),
+	    -cosf(c->pitch) * cosf(c->yaw));
 }
 
 void
-cam_Update(struct camera *c, struct vec3 target, const struct aabb *solids,
+cam_Right(const struct camera *c, vector out)
+{
+	VEC_SET(out, cosf(c->yaw), 0.0f, sinf(c->yaw));
+}
+
+void
+cam_Update(struct camera *c, const vector target, const struct aabb *solids,
     int nsolids)
 {
-	struct vec3 anchor;
-	struct vec3 back;
+	vector anchor;
+	vector back;
+	vector lift;
+	vector forward;
 	float best;
 	float t;
 	int i;
 
-	c->target = target;
-	anchor = v3_add(target, v3(0.0f, c->eye_height, 0.0f));
+	VEC_ASSIGMENT(target, c->target);
+	VEC_SET(lift, 0.0f, c->eye_height, 0.0f);
+	vec_add(target, lift, anchor);
 
 	if (c->distance < 0.01f) {
-		c->pos = anchor;
+		VEC_ASSIGMENT(anchor, c->pos);
 		return;
 	}
 
@@ -85,7 +84,8 @@ cam_Update(struct camera *c, struct vec3 target, const struct aabb *solids,
 	 *  укорачивается до неё. Без этого камера в третьем лице уезжает в
 	 *  соседнюю комнату и показывает изнанку стен.
 	 */
-	back = v3_scale(cam_Forward(c), -c->distance);
+	cam_Forward(c, forward);
+	vec_scalar_mul(forward, -c->distance, back);
 
 	best = 1.0f;
 	for (i = 0; i < nsolids; i++) {
@@ -98,18 +98,23 @@ cam_Update(struct camera *c, struct vec3 target, const struct aabb *solids,
 			best = 0.0f;
 	}
 
-	c->pos = v3_add(anchor, v3_scale(back, best));
+	vec_scalar_mul(back, best, back);
+	vec_add(anchor, back, c->pos);
 }
 
 void
 cam_View(const struct camera *c, float view[16])
 {
-	struct vec3 forward;
+	vector forward;
+	vector at;
+	vector up;
 
 	/*  Одна формула на все три режима: камера стоит в pos и смотрит
 	 *  вдоль forward. Для третьего лица и вида сверху точка интереса
 	 *  как раз лежит на этом луче, потому что pos от неё и отсчитан.
 	 */
-	forward = cam_Forward(c);
-	m4_look_at(view, c->pos, v3_add(c->pos, forward), v3(0.0f, 1.0f, 0.0f));
+	cam_Forward(c, forward);
+	vec_add(c->pos, forward, at);
+	VEC_SET(up, 0.0f, 1.0f, 0.0f);
+	m4_look_at(view, c->pos, at, up);
 }

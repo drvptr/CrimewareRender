@@ -31,7 +31,7 @@
 #define WLD_MAX_SOLIDS 4096
 
 struct wld_portal {
-	struct vec3 corner[4];	/* counter clockwise, seen from `from`	*/
+	vector corner[4];	/* counter clockwise, seen from `from`	*/
 	int from;
 	int to;
 };
@@ -54,13 +54,13 @@ struct world {
 };
 
 void wld_Clear(struct world *w);
-int wld_AddSector(struct world *w, struct aabb bounds, unsigned int mesh,
-    unsigned int tex);
-int wld_AddPortal(struct world *w, int from, int to, struct vec3 a,
-    struct vec3 b, struct vec3 c, struct vec3 d);
-int wld_AddSolid(struct world *w, int sector, struct aabb box);
+int wld_AddSector(struct world *w, const struct aabb *bounds,
+    unsigned int mesh, unsigned int tex);
+int wld_AddPortal(struct world *w, int from, int to, const vector a,
+    const vector b, const vector c, const vector d);
+int wld_AddSolid(struct world *w, int sector, const struct aabb *box);
 
-int wld_SectorAt(const struct world *w, struct vec3 p);
+int wld_SectorAt(const struct world *w, const vector p);
 /* RETURN VALUE: sector index, or -1 when the point is in none of them. */
 
 int wld_Visible(const struct world *w, int from, const float viewproj[16],

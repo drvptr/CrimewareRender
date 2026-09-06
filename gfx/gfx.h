@@ -44,6 +44,12 @@ void gfx_EndFrame(void);
  */
 unsigned int gfx_MakeTexture(void *pixels, unsigned long long geo,
     int smooth, int repeat);
+/* NOTE:  ВРЕМЯ ЖИЗНИ. Держи pixels живыми, пока жива текстура. gfx_gl.c
+ *	  копирует их в видеопамять и после вызова холст не нужен, а
+ *	  gfx_soft.c копий не делает и читает их каждый кадр. Правило
+ *	  выбрано по более строгому бэкенду: иначе один и тот же код
+ *	  работал бы на одном рендере и падал на другом.
+ */
 void gfx_FreeTexture(unsigned int tex);
 
 /*  MESHES.  dynamic = 1 if you will call gfx_UpdateMesh() every frame,
@@ -57,7 +63,7 @@ void gfx_FreeMesh(unsigned int mesh);
 
 /*  STATE.  Set once per frame, not per object.  */
 void gfx_SetCamera(const float view[16], const float proj[16]);
-void gfx_SetLight(struct vec3 direction, float ambient);
+void gfx_SetLight(const vector direction, float ambient);
 void gfx_SetFog(float r, float g, float b, float start, float end);
 /* NOTE:  end <= start turns fog off.  Fog is not decoration here: it is
  *	  what hides the far clip plane when the world streams in.
@@ -69,7 +75,7 @@ void gfx_SetFog(float r, float g, float b, float start, float end);
  */
 void gfx_DrawMesh(unsigned int mesh, const float model[16],
     unsigned int tex, const float rgba[4], int first, int count);
-void gfx_DrawSprite(struct vec3 centre, float w, float h, unsigned int tex,
+void gfx_DrawSprite(const vector centre, float w, float h, unsigned int tex,
     const float rgba[4]);
 
 /*  2D, in pixels, origin top left.  Menus, HUD, subtitles.  */

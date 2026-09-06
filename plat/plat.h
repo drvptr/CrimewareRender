@@ -67,6 +67,20 @@ void plat_Poll(struct plat_input *in);
 void plat_Swap(void);
 void plat_GrabMouse(int on);	/* pointer hidden and pinned: mouse look */
 
+void *plat_Framebuffer(unsigned long long *geo_out);
+/* USAGE:
+	unsigned long long geo;
+	unsigned int *canvas = plat_Framebuffer(&geo);
+   RETURN VALUE:
+	холст размером с окно, 4 байта на пиксель, 0xAARRGGBB, строки
+	упакованы. Геометрия отдаётся в формате buf. Возвращает 0 на
+	бэкендах, где рисует видеокарта - программный рендер такой бэкенд
+	просто не поддерживает и говорит об этом при старте.
+   NOTE:
+	указатель протухает при изменении размера окна: спрашивай заново
+	каждый кадр или после plat_input.resized.
+*/
+
 double plat_Time(void);		/* monotonic seconds since plat_Init	*/
 void plat_Sleep(double seconds);
 

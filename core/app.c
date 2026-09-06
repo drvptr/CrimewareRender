@@ -167,6 +167,7 @@ app_Run(struct app_hooks *h)
 	if (h->quit != 0)
 		h->quit(h->user);
 	gfx_Shutdown();
+	plat_AudioClose();
 	plat_CloseWindow();
 	plat_Shutdown();
 	return 0;

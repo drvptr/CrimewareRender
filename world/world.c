@@ -9,7 +9,7 @@ wld_Clear(struct world *w)
 }
 
 int
-wld_AddSector(struct world *w, struct aabb bounds, unsigned int mesh,
+wld_AddSector(struct world *w, const struct aabb *bounds, unsigned int mesh,
     unsigned int tex)
 {
 	struct wld_sector *s;
@@ -17,7 +17,7 @@ wld_AddSector(struct world *w, struct aabb bounds, unsigned int mesh,
 	if (w->nsectors >= WLD_MAX_SECTORS)
 		return -1;
 	s = &w->sector[w->nsectors];
-	s->bounds = bounds;
+	s->bounds = *bounds;
 	s->mesh = mesh;
 	s->tex = tex;
 	s->first_solid = w->nsolids;
@@ -27,8 +27,8 @@ wld_AddSector(struct world *w, struct aabb bounds, unsigned int mesh,
 }
 
 int
-wld_AddPortal(struct world *w, int from, int to, struct vec3 a,
-    struct vec3 b, struct vec3 c, struct vec3 d)
+wld_AddPortal(struct world *w, int from, int to, const vector a,
+    const vector b, const vector c, const vector d)
 {
 	struct wld_portal *p;
 
@@ -38,10 +38,10 @@ wld_AddPortal(struct world *w, int from, int to, struct vec3 a,
 		return -1;
 
 	p = &w->portal[w->nportals];
-	p->corner[0] = a;
-	p->corner[1] = b;
-	p->corner[2] = c;
-	p->corner[3] = d;
+	VEC_ASSIGMENT(a, p->corner[0]);
+	VEC_ASSIGMENT(b, p->corner[1]);
+	VEC_ASSIGMENT(c, p->corner[2]);
+	VEC_ASSIGMENT(d, p->corner[3]);
 	p->from = from;
 	p->to = to;
 	w->nportals++;
@@ -49,7 +49,7 @@ wld_AddPortal(struct world *w, int from, int to, struct vec3 a,
 }
 
 int
-wld_AddSolid(struct world *w, int sector, struct aabb box)
+wld_AddSolid(struct world *w, int sector, const struct aabb *box)
 {
 	if (w->nsolids >= WLD_MAX_SOLIDS)
 		return -1;
@@ -62,14 +62,14 @@ wld_AddSolid(struct world *w, int sector, struct aabb box)
 	if (sector != w->nsectors - 1)
 		return -1;
 
-	w->solid[w->nsolids] = box;
+	w->solid[w->nsolids] = *box;
 	w->nsolids++;
 	w->sector[sector].nsolids++;
 	return w->nsolids - 1;
 }
 
 int
-wld_SectorAt(const struct world *w, struct vec3 p)
+wld_SectorAt(const struct world *w, const vector p)
 {
 	int i;
 
@@ -86,12 +86,8 @@ portal_in_frustum(const struct frustum *f, const struct wld_portal *p)
 	struct aabb box;
 	int i;
 
-	box.min[0] = p->corner[0].x;
-	box.min[1] = p->corner[0].y;
-	box.min[2] = p->corner[0].z;
-	box.max[0] = p->corner[0].x;
-	box.max[1] = p->corner[0].y;
-	box.max[2] = p->corner[0].z;
+	VEC_ASSIGMENT(p->corner[0], box.min);
+	VEC_ASSIGMENT(p->corner[0], box.max);
 	for (i = 1; i < 4; i++)
 		coll_AabbGrow(&box, p->corner[i]);
 

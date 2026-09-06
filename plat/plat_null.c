@@ -8,11 +8,14 @@
 #define _POSIX_C_SOURCE 199309L
 
 #include <time.h>
+#include <stdlib.h>
 #include "plat.h"
+#include "../buf/buffer.h"
 
 static double time_base;
 static int fake_w = 640;
 static int fake_h = 480;
+static unsigned int *canvas;
 
 static double
 now_seconds(void)
@@ -41,6 +44,10 @@ plat_OpenWindow(const char *title, int width, int height)
 	(void)title;
 	fake_w = width;
 	fake_h = height;
+	if (canvas != 0) {
+		free(canvas);
+		canvas = 0;
+	}
 	return 1;
 }
 
@@ -101,29 +108,16 @@ plat_GlProc(const char *name)
 	return 0;
 }
 
-int
-plat_AudioOpen(int rate, int channels)
+/*  Холст есть даже здесь: программный рендер благодаря этому гоняется в
+ *  тестах и в CI, без дисплея, а кадр можно сохранить в файл и посмотреть.
+ */
+void *
+plat_Framebuffer(unsigned long long *geo_out)
 {
-	(void)rate;
-	(void)channels;
-	return 0;
-}
-
-int
-plat_AudioSpace(void)
-{
-	return 0;
-}
-
-int
-plat_AudioWrite(const short *pcm, int frames)
-{
-	(void)pcm;
-	(void)frames;
-	return frames;
-}
-
-void
-plat_AudioClose(void)
-{
+	if (canvas == 0)
+		canvas = malloc((unsigned long)fake_w *
+		    (unsigned long)fake_h * 4);
+	if (geo_out != 0)
+		*geo_out = bufNewGeom(4, fake_w, fake_h);
+	return canvas;
 }

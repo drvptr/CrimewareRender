@@ -403,7 +403,12 @@ gfx_Init(void)
 	m4_identity(cur_view);
 	m4_identity(cur_proj);
 	m4_identity(cur_viewproj);
-	gfx_SetLight(v3(-0.4f, -0.8f, -0.4f), 0.35f);
+	{
+		vector light;
+
+		VEC_SET(light, -0.4f, -0.8f, -0.4f);
+		gfx_SetLight(light, 0.35f);
+	}
 	gfx_SetFog(0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
 	return 1;
 }
@@ -577,14 +582,14 @@ gfx_SetCamera(const float view[16], const float proj[16])
 }
 
 void
-gfx_SetLight(struct vec3 direction, float ambient)
+gfx_SetLight(const vector direction, float ambient)
 {
-	struct vec3 d;
+	vector d;
 
-	d = v3_norm(direction);
+	vec_norm(direction, d);
 	p_glUseProgram(prog);
 	if (u_lightdir >= 0)
-		p_glUniform3f(u_lightdir, d.x, d.y, d.z);
+		p_glUniform3f(u_lightdir, d[X], d[Y], d[Z]);
 	if (u_ambient >= 0)
 		p_glUniform1f(u_ambient, ambient);
 }
@@ -665,13 +670,13 @@ gfx_DrawMesh(unsigned int handle, const float model[16], unsigned int tex,
 }
 
 void
-gfx_DrawSprite(struct vec3 centre, float w, float h, unsigned int tex,
+gfx_DrawSprite(const vector centre, float w, float h, unsigned int tex,
     const float rgba[4])
 {
 	struct gl_mesh *m;
 	float model[16];
-	struct vec3 right;
-	struct vec3 up;
+	vector right;
+	vector up;
 
 	m = mesh_at(quad_mesh);
 	if (m == 0)
@@ -680,19 +685,19 @@ gfx_DrawSprite(struct vec3 centre, float w, float h, unsigned int tex,
 	/*  A billboard is the camera's own axes, which are the rows of the
 	 *  view matrix, scaled and moved to the sprite.
 	 */
-	right = v3(cur_view[0], cur_view[4], cur_view[8]);
-	up = v3(cur_view[1], cur_view[5], cur_view[9]);
+	VEC_SET(right, cur_view[0], cur_view[4], cur_view[8]);
+	VEC_SET(up, cur_view[1], cur_view[5], cur_view[9]);
 
 	m4_identity(model);
-	model[0] = right.x * w;
-	model[1] = right.y * w;
-	model[2] = right.z * w;
-	model[4] = up.x * h;
-	model[5] = up.y * h;
-	model[6] = up.z * h;
-	model[12] = centre.x - (right.x * w + up.x * h) * 0.5f;
-	model[13] = centre.y - (right.y * w + up.y * h) * 0.5f;
-	model[14] = centre.z - (right.z * w + up.z * h) * 0.5f;
+	model[0] = right[X] * w;
+	model[1] = right[Y] * w;
+	model[2] = right[Z] * w;
+	model[4] = up[X] * h;
+	model[5] = up[Y] * h;
+	model[6] = up[Z] * h;
+	model[12] = centre[X] - (right[X] * w + up[X] * h) * 0.5f;
+	model[13] = centre[Y] - (right[Y] * w + up[Y] * h) * 0.5f;
+	model[14] = centre[Z] - (right[Z] * w + up[Z] * h) * 0.5f;
 
 	p_glDisable(GL_CULL_FACE);
 	draw_indexed(m, model, tex, rgba, 0, 6, 1.0f);

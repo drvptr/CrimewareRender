@@ -39,8 +39,8 @@ struct camera {
 	float pitch;
 	float distance;		/* длина поводка, 0 - первое лицо	*/
 	float eye_height;	/* насколько выше точки интереса	*/
-	struct vec3 target;	/* точка интереса, куда смотрим		*/
-	struct vec3 pos;	/* где оказалась камера, считает cam_Update */
+	vector target;		/* точка интереса, куда смотрим		*/
+	vector pos;		/* где оказалась камера, считает cam_Update */
 };
 
 void cam_Init(struct camera *c, int mode);
@@ -51,7 +51,7 @@ void cam_Look(struct camera *c, float dx, float dy);
  *	  разных режимах: сверху смотреть горизонтально бессмысленно.
  */
 
-void cam_Update(struct camera *c, struct vec3 target,
+void cam_Update(struct camera *c, const vector target,
     const struct aabb *solids, int nsolids);
 /* USAGE:
 	cam_Update(&cam, unit[controlled].pos, near_solids, n);
@@ -63,8 +63,8 @@ void cam_Update(struct camera *c, struct vec3 target,
 */
 
 void cam_View(const struct camera *c, float view[16]);
-struct vec3 cam_Forward(const struct camera *c);
-struct vec3 cam_Right(const struct camera *c);
+void cam_Forward(const struct camera *c, vector out);
+void cam_Right(const struct camera *c, vector out);
 /* NOTE:  Forward и Right нужны не только матрице: по ним считается
  *	  движение относительно взгляда и панорама звука.
  */

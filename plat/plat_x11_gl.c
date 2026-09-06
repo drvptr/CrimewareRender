@@ -1,40 +1,50 @@
 /*
- *	@(#)plat_x11.c	2.0-вектор
+ *	@(#)plat_x11_gl.c	2.0-вектор
  *
- *  X11 без GL: окно, ввод и один общий фреймбуфер, который целиком уезжает
- *  на сервер за кадр. Линкуется с -lX11 и больше ни с чем, собирается
- *  --static.
+ *  X11 + GLX. На этой ветке без dlopen: функции GLX объявлены здесь же и
+ *  линкуются обычным образом с -lGL. Заголовки GL всё равно не нужны -
+ *  прототипы этих четырёх функций не менялись с 1998 года, а тащить ради
+ *  них пакет -dev незачем.
  *
- *  ПРО "НЕ ГРУЗИТЬ СЕРВЕР ЗАПРОСАМИ ПО ПИКСЕЛЮ". В твоём старом io_xlib.c
- *  этой проблемы на самом деле не было: XPutPixel пишет в клиентскую
- *  память XImage и с сервером не разговаривает, а на сервер кадр уезжал
- *  один раз в io_UpdateFrame через XPutImage. То есть архитектура была
- *  правильная. Что там действительно стоило денег - это вызов функции и
- *  разбор глубины визуала на каждый пиксель внутри XPutPixel.
+ *  ЧТО ЭТО СТОИЛО. Раньше бинарник запускался на машине без libGL и честно
+ *  сообщал об этом. Теперь без libGL он не запустится вовсе: динамический
+ *  компоновщик откажет ещё до main. Взамен появилась статическая сборка и
+ *  минус пятьдесят строк загрузчика.
  *
- *  Поэтому здесь холст отдаётся наружу указателем, рендер пишет в него
- *  напрямую как в массив unsigned int, а XPutImage зовётся один раз за
- *  кадр. Формат жёстко 32 бита, 0xAARRGGBB - тот самый TrueColor, который
- *  стоит на любой машине этого века; если визуал другой, окно не
- *  открывается с внятным сообщением, а не рисует мусор.
+ *  Звук отсюда уехал в plat/audio_alsa.c: это другое устройство, и в одном
+ *  файле с окном ему делать нечего.
  */
 #define _POSIX_C_SOURCE 199309L
 
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <time.h>
+#include <stdio.h>
 #include "plat.h"
-#include "../buf/buffer.h"
+
+/*  GLX, объявленный руками. GLXContext - непрозрачный указатель, drawable -
+ *  это XID. Линкуется напрямую.
+ */
+extern XVisualInfo *glXChooseVisual(Display *, int, int *);
+extern void *glXCreateContext(Display *, XVisualInfo *, void *, int);
+extern int glXMakeCurrent(Display *, unsigned long, void *);
+extern void glXSwapBuffers(Display *, unsigned long);
+extern void glXDestroyContext(Display *, void *);
+extern void *glXGetProcAddressARB(const unsigned char *);
+
+#define GLX_RGBA		4
+#define GLX_DOUBLEBUFFER	5
+#define GLX_RED_SIZE		8
+#define GLX_GREEN_SIZE		9
+#define GLX_BLUE_SIZE		10
+#define GLX_DEPTH_SIZE		12
+#define GLX_STENCIL_SIZE	13
 
 static Display *dpy;
 static Window win;
-static GC gc;
-static XImage *image;
-static unsigned int *canvas;
 static Atom wm_delete;
+static void *gl_ctx;
 static int win_w;
 static int win_h;
 static int grabbed;
@@ -43,6 +53,8 @@ static int last_my;
 static int acc_dx;
 static int acc_dy;
 static double time_base;
+
+/* ---------------------------------------------------------------- time */
 
 static double
 now_seconds(void)
@@ -71,6 +83,29 @@ plat_Sleep(double seconds)
 	nanosleep(&ts, 0);
 }
 
+/* ------------------------------------------------------------------ gl */
+
+void *
+plat_GlProc(const char *name)
+{
+	/*  Точки входа OpenGL 2.0 берутся у GLX, а не линкуются напрямую:
+	 *  ровно так же это будет работать через wglGetProcAddress на
+	 *  Windows, где opengl32.dll экспортирует только версию 1.1.
+	 */
+	return glXGetProcAddressARB((const unsigned char *)name);
+}
+
+void *
+plat_Framebuffer(unsigned long long *geo_out)
+{
+	/*  Здесь рисует видеокарта, холста в памяти нет.  */
+	if (geo_out != 0)
+		*geo_out = 0;
+	return 0;
+}
+
+/* -------------------------------------------------------------- window */
+
 int
 plat_Init(void)
 {
@@ -92,78 +127,64 @@ plat_Shutdown(void)
 	}
 }
 
-/*  Холст и XImage вокруг него. Пересоздаётся при изменении размера окна. */
-static int
-make_canvas(int width, int height)
-{
-	Visual *visual;
-	int depth;
-
-	if (image != 0) {
-		/*  XDestroyImage освобождает и данные, поэтому canvas
-		 *  отпускать самим не надо.
-		 */
-		XDestroyImage(image);
-		image = 0;
-		canvas = 0;
-	}
-
-	visual = DefaultVisual(dpy, DefaultScreen(dpy));
-	depth = DefaultDepth(dpy, DefaultScreen(dpy));
-
-	canvas = malloc((unsigned long)width * (unsigned long)height * 4);
-	if (canvas == 0)
-		return 0;
-
-	image = XCreateImage(dpy, visual, (unsigned)depth, ZPixmap, 0,
-	    (char *)canvas, (unsigned)width, (unsigned)height, 32, 0);
-	if (image == 0) {
-		free(canvas);
-		canvas = 0;
-		return 0;
-	}
-	win_w = width;
-	win_h = height;
-	return 1;
-}
-
 int
 plat_OpenWindow(const char *title, int width, int height)
 {
-	Visual *visual;
-	int screen;
+	int attribs[] = {
+		GLX_RGBA,
+		GLX_DOUBLEBUFFER,
+		GLX_RED_SIZE, 8,
+		GLX_GREEN_SIZE, 8,
+		GLX_BLUE_SIZE, 8,
+		GLX_DEPTH_SIZE, 24,
+		GLX_STENCIL_SIZE, 8,
+		0
+	};
+	XVisualInfo *vi;
+	XSetWindowAttributes swa;
+	Colormap cmap;
 
 	if (dpy == 0)
 		return 0;
-	screen = DefaultScreen(dpy);
-	visual = DefaultVisual(dpy, screen);
 
-	if (visual->red_mask != 0x00FF0000 ||
-	    visual->green_mask != 0x0000FF00 ||
-	    visual->blue_mask != 0x000000FF) {
-		fprintf(stderr, "plat: need a 32 bit TrueColor visual\n");
+	vi = glXChooseVisual(dpy, DefaultScreen(dpy), attribs);
+	if (vi == 0) {
+		fprintf(stderr, "plat: no usable visual\n");
 		return 0;
 	}
 
-	win = XCreateSimpleWindow(dpy, RootWindow(dpy, screen), 0, 0,
-	    (unsigned)width, (unsigned)height, 0,
-	    BlackPixel(dpy, screen), BlackPixel(dpy, screen));
-	if (win == 0)
+	cmap = XCreateColormap(dpy, RootWindow(dpy, vi->screen), vi->visual,
+	    AllocNone);
+	swa.colormap = cmap;
+	swa.background_pixmap = None;
+	swa.border_pixel = 0;
+	swa.event_mask = ExposureMask | KeyPressMask | KeyReleaseMask |
+	    ButtonPressMask | ButtonReleaseMask | PointerMotionMask |
+	    StructureNotifyMask | FocusChangeMask;
+
+	win = XCreateWindow(dpy, RootWindow(dpy, vi->screen), 0, 0,
+	    (unsigned)width, (unsigned)height, 0, vi->depth, InputOutput,
+	    vi->visual, CWBorderPixel | CWColormap | CWEventMask, &swa);
+	if (win == 0) {
+		XFree(vi);
 		return 0;
+	}
 
 	XStoreName(dpy, win, title);
-	XSelectInput(dpy, win, ExposureMask | KeyPressMask | KeyReleaseMask |
-	    ButtonPressMask | ButtonReleaseMask | PointerMotionMask |
-	    StructureNotifyMask | FocusChangeMask);
 	wm_delete = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
 	XSetWMProtocols(dpy, win, &wm_delete, 1);
 	XMapWindow(dpy, win);
 
-	gc = XCreateGC(dpy, win, 0, 0);
-	if (!make_canvas(width, height)) {
-		fprintf(stderr, "plat: cannot allocate the canvas\n");
+	gl_ctx = glXCreateContext(dpy, vi, 0, True);
+	XFree(vi);
+	if (gl_ctx == 0) {
+		fprintf(stderr, "plat: cannot create a GL context\n");
 		return 0;
 	}
+	glXMakeCurrent(dpy, win, gl_ctx);
+
+	win_w = width;
+	win_h = height;
 	return 1;
 }
 
@@ -172,14 +193,10 @@ plat_CloseWindow(void)
 {
 	if (dpy == 0)
 		return;
-	if (image != 0) {
-		XDestroyImage(image);
-		image = 0;
-		canvas = 0;
-	}
-	if (gc != 0) {
-		XFreeGC(dpy, gc);
-		gc = 0;
+	if (gl_ctx != 0) {
+		glXMakeCurrent(dpy, 0, 0);
+		glXDestroyContext(dpy, gl_ctx);
+		gl_ctx = 0;
 	}
 	if (win != 0) {
 		XDestroyWindow(dpy, win);
@@ -187,29 +204,11 @@ plat_CloseWindow(void)
 	}
 }
 
-void *
-plat_Framebuffer(unsigned long long *geo_out)
-{
-	if (geo_out != 0)
-		*geo_out = bufNewGeom(4, win_w, win_h);
-	return canvas;
-}
-
 void
 plat_Swap(void)
 {
-	if (dpy == 0 || win == 0 || image == 0)
-		return;
-	XPutImage(dpy, win, gc, image, 0, 0, 0, 0, (unsigned)win_w,
-	    (unsigned)win_h);
-	XFlush(dpy);
-}
-
-void *
-plat_GlProc(const char *name)
-{
-	(void)name;
-	return 0;
+	if (dpy != 0 && win != 0)
+		glXSwapBuffers(dpy, win);
 }
 
 /* --------------------------------------------------------------- input */
@@ -353,8 +352,8 @@ plat_Poll(struct plat_input *in)
 		} else if (ev.type == ConfigureNotify) {
 			if (ev.xconfigure.width != win_w ||
 			    ev.xconfigure.height != win_h) {
-				make_canvas(ev.xconfigure.width,
-				    ev.xconfigure.height);
+				win_w = ev.xconfigure.width;
+				win_h = ev.xconfigure.height;
 				in->resized = 1;
 			}
 		} else if (ev.type == ClientMessage) {
@@ -371,3 +370,4 @@ plat_Poll(struct plat_input *in)
 	if (grabbed && (acc_dx != 0 || acc_dy != 0))
 		warp_to_centre();
 }
+
