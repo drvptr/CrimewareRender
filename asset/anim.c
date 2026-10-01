@@ -1,3 +1,5 @@
+#include <string.h>
+
 #include "anim.h"
 
 static long
@@ -7,11 +9,36 @@ i32at(const unsigned char *p)
 	    ((long)p[3] << 24);
 }
 
+static float
+f32at(const unsigned char *p)
+{
+	unsigned long u;
+	float f;
+
+	u = (unsigned long)p[0] | ((unsigned long)p[1] << 8) |
+	    ((unsigned long)p[2] << 16) | ((unsigned long)p[3] << 24);
+	memcpy(&f, &u, sizeof f);
+	return f;
+}
+
+/*  Positions of vertex k in frame f of a 16 bit clip.  */
+static void
+packed_at(const struct anim *a, long f, int k, float out[3])
+{
+	const short *s;
+
+	s = a->packed + (f * (long)a->nverts + (long)k) * 3;
+	out[0] = a->offset[0] + a->scale[0] * (float)s[0];
+	out[1] = a->offset[1] + a->scale[1] * (float)s[1];
+	out[2] = a->offset[2] + a->scale[2] * (float)s[2];
+}
+
 int
 anim_Parse(struct anim *out, const void *data, long len)
 {
 	const unsigned char *p;
 	long need;
+	int i;
 
 	if (out == 0 || data == 0 || len < 24)
 		return -1;
@@ -24,9 +51,25 @@ anim_Parse(struct anim *out, const void *data, long len)
 	out->fps = (int)i32at(p + 12);
 	out->has_normals = (int)(i32at(p + 16) & 1);
 	out->stride = out->has_normals ? 6 : 3;
+	out->frames = 0;
+	out->packed = 0;
 
 	if (out->nverts <= 0 || out->nframes <= 0 || out->fps <= 0)
 		return -1;
+
+	if (i32at(p + 16) & 2) {
+		if (out->has_normals || len < 48)
+			return -1;
+		for (i = 0; i < 3; i++) {
+			out->scale[i] = f32at(p + 24 + i * 4);
+			out->offset[i] = f32at(p + 36 + i * 4);
+		}
+		need = 48 + (long)out->nframes * (long)out->nverts * 3 * 2;
+		if (need > len)
+			return -1;
+		out->packed = (const short *)(const void *)(p + 48);
+		return 0;
+	}
 
 	need = 24 + (long)out->nframes * (long)out->nverts *
 	    (long)out->stride * 4;
@@ -56,11 +99,13 @@ anim_Sample(const struct anim *a, float seconds, int loop,
 	float t;
 	const float *pa;
 	const float *pb;
+	float qa[3];
+	float qb[3];
 	int i;
 	long off_a;
 	long off_b;
 
-	if (a == 0 || dst == 0 || a->frames == 0)
+	if (a == 0 || dst == 0 || (a->frames == 0 && a->packed == 0))
 		return;
 	if (source == 0 && nverts > a->nverts)
 		nverts = a->nverts;
@@ -87,6 +132,20 @@ anim_Sample(const struct anim *a, float seconds, int loop,
 			frame_b = 0;
 			t = 0.0f;
 		}
+	}
+
+	if (a->packed != 0) {
+		for (i = 0; i < nverts; i++) {
+			from = source != 0 ? source[i] : i;
+			if (from < 0 || from >= a->nverts)
+				continue;
+			packed_at(a, frame_a, from, qa);
+			packed_at(a, frame_b, from, qb);
+			dst[i].x = qa[0] + (qb[0] - qa[0]) * t;
+			dst[i].y = qa[1] + (qb[1] - qa[1]) * t;
+			dst[i].z = qa[2] + (qb[2] - qa[2]) * t;
+		}
+		return;
 	}
 
 	off_a = (long)frame_a * (long)a->nverts * (long)a->stride;

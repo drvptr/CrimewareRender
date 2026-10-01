@@ -50,12 +50,53 @@ TEST = test/test.c
 
 all: demo-bin
 
-# Не "demo": так называется каталог, и make решил бы, что цель готова.
-demo-bin: $(ENGINE) $(DEMO)
-	$(CC) $(CFLAGS) -o $@ $(ENGINE) $(DEMO) $(LDLIBS)
+# Игра - unity-сборка: main.c включает остальные demo/*.c, поэтому
+# пересобирать её надо при правке любого из них.
+DEMO_SRC = $(wildcard demo/*.c demo/*.h)
 
-static: $(ENGINE) $(DEMO)
-	$(CC) $(CFLAGS) -static -o demo-static $(ENGINE) $(DEMO) $(STATIC_LIBS)
+# РЕСУРСЫ ИГРЫ. Всё, что лежит в demo/assets/, попадает внутрь программы:
+# xxd -i делает из каждого файла .c с массивом байт, demo/tools/assets.sh
+# пишет оглавление - таблицу "имя файла -> массив". Игра читает ресурсы
+# только оттуда, файлов рядом с собой ей не нужно.
+#
+#	demo/assets/textures/grass.tga
+#	  -> demo-res/textures/grass.tga.c	textures_grass_tga[]
+#	  -> demo-res/textures/grass.tga.o
+#	demo-res/index.c			{ "textures/grass.tga", ... }
+#
+# Каждый файл - свой объектный файл: поменял одну текстуру - пересобрался
+# один массив, а make -j собирает их параллельно. Оглавление зависит от
+# каталогов: файл добавили или убрали - у каталога сменилось время, и
+# оглавление пишется заново.
+ASSETS := $(shell cd demo/assets 2>/dev/null && find . -type f \
+	! -name '*.md' ! -name '.*' | sed 's|^\./||' | LC_ALL=C sort)
+ASSET_DIRS := $(shell find demo/assets -type d 2>/dev/null)
+RES_O = $(ASSETS:%=demo-res/%.o) demo-res/index.o
+
+demo-res/%.c: demo/assets/%
+	@mkdir -p $(@D)
+	cd demo/assets && xxd -i $* > ../../$@
+
+demo-res/%.o: demo-res/%.c
+	$(CC) -c -o $@ $<
+
+demo-res/index.c: demo/tools/assets.sh $(ASSET_DIRS)
+	@mkdir -p demo-res
+	sh demo/tools/assets.sh $(ASSETS) > $@
+
+demo-res/index.o: demo-res/index.c demo/res.h
+	$(CC) $(CFLAGS) -c -o $@ demo-res/index.c
+
+# Сделанные xxd файлы .c не удалять: их полезно открыть и посмотреть.
+.PRECIOUS: demo-res/%.c
+
+# Не "demo": так называется каталог, и make решил бы, что цель готова.
+demo-bin: $(ENGINE) $(DEMO) $(DEMO_SRC) $(RES_O)
+	$(CC) $(CFLAGS) -o $@ $(ENGINE) $(DEMO) $(RES_O) $(LDLIBS)
+
+static: $(ENGINE) $(DEMO) $(DEMO_SRC) $(RES_O)
+	$(CC) $(CFLAGS) -static -o demo-static $(ENGINE) $(DEMO) $(RES_O) \
+		$(STATIC_LIBS)
 	@ls -l demo-static | awk '{print "статический бинарник:", $$5, "байт"}'
 	@file demo-static | cut -d, -f1-3
 
@@ -87,5 +128,6 @@ freestanding:
 
 clean:
 	rm -f demo-bin demo-static test-bin picture-bin /tmp/buffer.o *.tga
+	rm -rf demo-res
 
 .PHONY: all check clean freestanding static picture

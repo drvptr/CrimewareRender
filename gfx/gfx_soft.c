@@ -38,7 +38,7 @@
 #define SOFT_MAX_W 1920
 #define SOFT_MAX_H 1200
 #define SOFT_MAX_MESHES 1024
-#define SOFT_MAX_TEXTURES 256
+#define SOFT_MAX_TEXTURES 1024
 
 /*  Ближе этого по w треугольник обрезается. В fixed, чтобы не делить на
  *  ноль и не переворачивать знак при перспективном делении.
@@ -62,6 +62,14 @@
  */
 #define IBITS 16
 #define IONE (1 << IBITS)
+
+/*  Глубина - это 1/w, и хранится она с запасом: на ZEXTRA бит точнее
+ *  Q16. При Q16 у далёкой стены 1/w равно сотне-другой, и соседние
+ *  значения отстоят на десятки сантиметров: тень на земле и шлем на
+ *  голове начинают мерцать сквозь то, что под ними. Лишние восемь бит в
+ *  int помещаются: самое большое 1/w - у ближней плоскости, 2^26.
+ */
+#define ZEXTRA 8
 
 static inline int
 ilerp(int a, int b, int t)
@@ -100,7 +108,7 @@ struct sv {
 	fixed cw;
 	fixed x;	/* экран после деления, FIXED_BITS	*/
 	fixed y;
-	int iw;		/* 1/w, оно же глубина, Q16		*/
+	int iw;		/* 1/w, оно же глубина, Q16+ZEXTRA	*/
 	int u;		/* координаты текстуры, Q16		*/
 	int v;
 	int light;	/* яркость 0..IONE, Q16			*/
@@ -132,13 +140,31 @@ static int mode_2d;
 
 /* ------------------------------------------------------------- утилиты */
 
+/*  Перевод во fixed с округлением к ближайшему. FLOAT_TO_FIXED
+ *  отбрасывает дробь, то есть округляет к нулю: при N=4 0.99 становится
+ *  0.9375, и каждая матрица поворота чуть сжимает модель, а вершины
+ *  съезжают к началу координат. Раньше игре приходилось заранее
+ *  округлять всё, что она отдаёт рендеру; теперь это делает сам рендер,
+ *  и игре не нужно знать, что он целочисленный.
+ */
+static fixed
+to_fixed(float f)
+{
+	float s;
+
+	s = f * (float)FIXED_ONE;
+	if (s >= 0.0f)
+		return (fixed)(s + 0.5f);
+	return -(fixed)(0.5f - s);
+}
+
 static void
 mat_to_fixed(const float m[16], fixed out[16])
 {
 	int i;
 
 	for (i = 0; i < 16; i++)
-		out[i] = FLOAT_TO_FIXED(m[i]);
+		out[i] = to_fixed(m[i]);
 }
 
 static void
@@ -296,10 +322,19 @@ gfx_MakeTexture(void *pixels, unsigned long long geo, int smooth, int repeat)
 		return 0;
 	if (BUF_UNIT(geo) != 3 && BUF_UNIT(geo) != 4)
 		return 0;
-	if (next_texture >= SOFT_MAX_TEXTURES)
-		return 0;
-
-	slot = next_texture++;
+	/*  Сначала - слот, освобождённый gfx_FreeTexture(): игра, которая
+	 *  заменяет текстуры (моды), иначе выбрала бы все слоты за один
+	 *  запуск.
+	 */
+	for (slot = 1; slot < next_texture; slot++) {
+		if (!textures[slot].used)
+			break;
+	}
+	if (slot == next_texture) {
+		if (next_texture >= SOFT_MAX_TEXTURES)
+			return 0;
+		next_texture++;
+	}
 	/*  ВНИМАНИЕ, ОТЛИЧИЕ ОТ gfx_gl.c: пиксели не копируются никуда.
 	 *  У видеокарты есть своя память, и после glTexImage2D холст можно
 	 *  выбросить. Здесь его выбрасывать нельзя - он и есть текстура.
@@ -378,10 +413,10 @@ gfx_SetLight(const vector direction, float ambient)
 	vector d;
 
 	vec_norm(direction, d);
-	light_dir[0] = FLOAT_TO_FIXED(d[X]);
-	light_dir[1] = FLOAT_TO_FIXED(d[Y]);
-	light_dir[2] = FLOAT_TO_FIXED(d[Z]);
-	light_ambient = FLOAT_TO_FIXED(ambient);
+	light_dir[0] = to_fixed(d[X]);
+	light_dir[1] = to_fixed(d[Y]);
+	light_dir[2] = to_fixed(d[Z]);
+	light_ambient = to_fixed(ambient);
 }
 
 void
@@ -412,9 +447,9 @@ sample_light(const struct gfx_vertex *v)
 	fixed d;
 	fixed l;
 
-	nx = FLOAT_TO_FIXED(v->nx);
-	ny = FLOAT_TO_FIXED(v->ny);
-	nz = FLOAT_TO_FIXED(v->nz);
+	nx = to_fixed(v->nx);
+	ny = to_fixed(v->ny);
+	nz = to_fixed(v->nz);
 
 	/*  Нормаль поворачивается матрицей модели с w = 0: перенос ей не
 	 *  нужен, она направление, а не точка.
@@ -442,9 +477,9 @@ transform(const struct gfx_vertex *v, struct sv *out)
 	fixed py;
 	fixed pz;
 
-	px = FLOAT_TO_FIXED(v->x);
-	py = FLOAT_TO_FIXED(v->y);
-	pz = FLOAT_TO_FIXED(v->z);
+	px = to_fixed(v->x);
+	py = to_fixed(v->y);
+	pz = to_fixed(v->z);
 
 	out->cx = fixed_mul(mat_mvp[0], px) + fixed_mul(mat_mvp[4], py) +
 	    fixed_mul(mat_mvp[8], pz) + mat_mvp[12];
@@ -472,8 +507,8 @@ to_screen(struct sv *s)
 
 	s->x = (fixed)(hw + (((long long)s->cx * hw) / s->cw));
 	s->y = (fixed)(hh - (((long long)s->cy * hh) / s->cw));
-	/*  1/w в Q16: (2^N * 2^16) / cw.  */
-	s->iw = (int)((((long long)IONE) << FIXED_BITS) / s->cw);
+	/*  1/w в Q(16+ZEXTRA): (2^N * 2^16 * 2^ZEXTRA) / cw.  */
+	s->iw = (int)((((long long)IONE) << (FIXED_BITS + ZEXTRA)) / s->cw);
 }
 
 /*  t в Q16. ilerp не зависит от формата a и b: это просто линейная смесь.  */
@@ -531,6 +566,20 @@ texel(const struct soft_texture *t, int u, int v)
 	return (0xFF << 24) | (p[0] << 16) | (p[1] << 8) | p[2];
 }
 
+/*  ПРАВИЛО ЗАПОЛНЕНИЯ. Пиксель принадлежит треугольнику, если его центр
+ *  внутри: строки от ceil(y_верх - 1/2) до ceil(y_низ - 1/2) - 1, в
+ *  строке - так же по x. Соседние треугольники делят общее ребро, и ни
+ *  один пиксель не рисуется дважды. Для непрозрачного это экономия, для
+ *  полупрозрачного (студень, стекло, тени) - нет светлых швов по рёбрам:
+ *  раньше крайние строки и столбцы брались с обеих сторон и смешивались
+ *  дважды.
+ */
+static int
+px_first(fixed v)
+{
+	return FIXED_TO_INT(v - FIXED_HALF + FIXED_ONE - 1);
+}
+
 /*  Один горизонтальный отрезок. Здесь живёт вся стоимость кадра.  */
 static void
 span(int y, struct sv *l, struct sv *r, const struct soft_texture *tex,
@@ -565,9 +614,9 @@ span(int y, struct sv *l, struct sv *r, const struct soft_texture *tex,
 		r = swap;
 	}
 
-	x0 = FIXED_TO_INT(l->x);
-	x1 = FIXED_TO_INT(r->x);
-	if (x1 < 0 || x0 >= screen_w)
+	x0 = px_first(l->x);
+	x1 = px_first(r->x) - 1;
+	if (x1 < x0 || x1 < 0 || x0 >= screen_w)
 		return;
 
 	width = (long long)(r->x - l->x);
@@ -584,8 +633,9 @@ span(int y, struct sv *l, struct sv *r, const struct soft_texture *tex,
 	dv = (int)(((long long)(r->v - l->v) * FIXED_ONE) / width);
 	dli = (int)(((long long)(r->light - l->light) * FIXED_ONE) / width);
 
-	/*  Стартовое значение в центре первого целого пикселя отрезка.  */
-	t = (int)((((long long)(INT_TO_FIXED(x0) - l->x)) << IBITS) / width);
+	/*  Стартовое значение в центре первого пикселя отрезка.  */
+	t = (int)((((long long)(INT_TO_FIXED(x0) + FIXED_HALF - l->x)) <<
+	    IBITS) / width);
 	z = ilerp(l->iw, r->iw, t);
 	u = ilerp(l->u, r->u, t);
 	v = ilerp(l->v, r->v, t);
@@ -631,7 +681,8 @@ span(int y, struct sv *l, struct sv *r, const struct soft_texture *tex,
 		cb = (int)(((long long)cb * li) >> IBITS);
 
 		if (fog_end > fog_start && z > 0) {
-			depth = (int)((((long long)IONE) << IBITS) / z);
+			depth = (int)((((long long)IONE) << (IBITS +
+			    ZEXTRA)) / z);
 			fog_t = (int)((((long long)(depth - fog_start)) <<
 			    IBITS) / (fog_end - fog_start));
 			if (fog_t < 0)
@@ -680,6 +731,7 @@ raster(struct sv *a, struct sv *b, struct sv *c,
 	int y2;
 	int ymid;
 	int t;
+	fixed yc;
 	long long area;
 
 	/*  Отсечение задних граней: знак площади в экранных координатах.
@@ -707,9 +759,11 @@ raster(struct sv *a, struct sv *b, struct sv *c,
 		b = tmp;
 	}
 
-	y0 = FIXED_TO_INT(a->y);
-	y2 = FIXED_TO_INT(c->y);
-	ymid = FIXED_TO_INT(b->y);
+	y0 = px_first(a->y);
+	y2 = px_first(c->y) - 1;
+	ymid = px_first(b->y);
+	if (y2 < y0)
+		return;
 
 	if (y2 < 0 || y0 >= screen_h)
 		return;
@@ -722,9 +776,10 @@ raster(struct sv *a, struct sv *b, struct sv *c,
 		 *  b-c - другую. Параметр ребра в Q16, иначе на N=4 у
 		 *  треугольника было бы 16 различимых строк.
 		 */
+		yc = INT_TO_FIXED(y) + FIXED_HALF;
 		if (c->y != a->y)
-			t = (int)((((long long)(INT_TO_FIXED(y) - a->y)) <<
-			    IBITS) / (c->y - a->y));
+			t = (int)((((long long)(yc - a->y)) << IBITS) /
+			    (c->y - a->y));
 		else
 			t = 0;
 		/*  Зажимать обязательно. Строка y берётся целой, а y вершины
@@ -737,16 +792,16 @@ raster(struct sv *a, struct sv *b, struct sv *c,
 
 		if (y < ymid) {
 			if (b->y != a->y)
-				t = (int)((((long long)(INT_TO_FIXED(y) -
-				    a->y)) << IBITS) / (b->y - a->y));
+				t = (int)((((long long)(yc - a->y)) << IBITS) /
+				    (b->y - a->y));
 			else
 				t = 0;
 			t = t < 0 ? 0 : (t > IONE ? IONE : t);
 			right = lerp_sv(a, b, t);
 		} else {
 			if (c->y != b->y)
-				t = (int)((((long long)(INT_TO_FIXED(y) -
-				    b->y)) << IBITS) / (c->y - b->y));
+				t = (int)((((long long)(yc - b->y)) << IBITS) /
+				    (c->y - b->y));
 			else
 				t = 0;
 			t = t < 0 ? 0 : (t > IONE ? IONE : t);
@@ -945,8 +1000,8 @@ gfx_Quad(float x, float y, float w, float h, unsigned int tex,
 	int cb;
 	int ca;
 	int old;
-	fixed u;
-	fixed v;
+	int u;
+	int v;
 	long at;
 
 	if (canvas == 0)
@@ -981,10 +1036,18 @@ gfx_Quad(float x, float y, float w, float h, unsigned int tex,
 			cb = tint & 0xFF;
 
 			if (t != 0) {
-				u = FLOAT_TO_FIXED(u0 + (u1 - u0) *
-				    ((float)(px - (int)x) / w));
-				v = FLOAT_TO_FIXED(v0 + (v1 - v0) *
-				    ((float)(py - (int)y) / h));
+				/*  texel() ждёт Q16, как интерполяторы
+				 *  треугольников. Раньше здесь стоял
+				 *  FLOAT_TO_FIXED, то есть Q4 при N=4, и
+				 *  любой текстурированный квадрат брал
+				 *  один пиксель (0,0). Берём центр пикселя.
+				 */
+				u = (int)((u0 + (u1 - u0) *
+				    (((float)(px - (int)x) + 0.5f) / w)) *
+				    (float)IONE);
+				v = (int)((v0 + (v1 - v0) *
+				    (((float)(py - (int)y) + 0.5f) / h)) *
+				    (float)IONE);
 				tc = texel(t, u, v);
 				ca = ca * ((tc >> 24) & 0xFF) / 255;
 				cr = cr * ((tc >> 16) & 0xFF) / 255;

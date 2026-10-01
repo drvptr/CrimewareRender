@@ -18,10 +18,20 @@
  *	8	int   nframes
  *	12	int   fps
  *	16	int   flags		1 = frames carry normals
+ *				2 = positions are 16 bit, see below
  *	20	int   reserved, 0
  *	24	float frames[nframes][nverts][3 or 6]
  *
  *  Frame n, vertex k is the position of the k-th "v" line of the .obj.
+ *
+ *  16 BIT FRAMES (flags & 2): the same file at half the size, for when the
+ *  clips are baked into the binary.  After the header come six floats,
+ *  scale[3] and offset[3], and then short frames[nframes][nverts][3]; the
+ *  position is offset + scale * value.  The box of a whole clip in 65536
+ *  steps is a few hundredths of a millimetre, far below what the fixed
+ *  point renderer can place a vertex on.  Normals are not stored in this
+ *  form: compute them from the triangles.  Quake II did the same with one
+ *  byte per coordinate and a box per frame.
  *  tools/van_export.py writes both files from the same Blender mesh in one
  *  run, so the two cannot drift apart.
  */
@@ -32,11 +42,14 @@
 
 struct anim {
 	const float *frames;
+	const short *packed;	/* 16 bit frames, or 0			*/
+	float scale[3];		/* packed: offset + scale * value	*/
+	float offset[3];
 	int nverts;
 	int nframes;
 	int fps;
 	int has_normals;
-	int stride;	/* floats per vertex: 3 or 6 */
+	int stride;	/* floats (or shorts) per vertex: 3 or 6	*/
 };
 
 int anim_Parse(struct anim *out, const void *data, long len);

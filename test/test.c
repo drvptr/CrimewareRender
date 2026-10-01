@@ -598,6 +598,49 @@ test_anim(void)
 	check(close_to(v[0].y, 10.0f), "frame 1 is the second frame");
 }
 
+/*  The same two frames, stored as 16 bit steps of a box: y goes from 0 to
+ *  10 in steps of 10/32767.
+ */
+static void
+test_anim_packed(void)
+{
+	static unsigned char file[48 + 2 * 2 * 3 * 2];
+	struct anim a;
+	struct gfx_vertex v[2];
+	float box[6];
+	short *frames;
+
+	memset(file, 0, sizeof file);
+	file[0] = 'V';
+	file[1] = 'A';
+	file[2] = 'N';
+	file[3] = '1';
+	file[4] = 2;	/* nverts  */
+	file[8] = 2;	/* nframes */
+	file[12] = 10;	/* fps	   */
+	file[16] = 2;	/* 16 bit  */
+	box[0] = 1.0f / 32767.0f;
+	box[1] = 10.0f / 32767.0f;
+	box[2] = 1.0f / 32767.0f;
+	box[3] = 0.0f;
+	box[4] = 0.0f;
+	box[5] = 0.0f;
+	memcpy(file + 24, box, sizeof box);
+	frames = (short *)(void *)(file + 48);
+	frames[3] = 32767;	/* vertex 1: x = 1		*/
+	frames[7] = 32767;	/* frame 1, vertex 0: y = 10	*/
+	frames[9] = 32767;	/* frame 1, vertex 1: x = 1	*/
+	frames[10] = 32767;	/*		      y = 10	*/
+
+	check(anim_Parse(&a, file, (long)sizeof file) == 0 && a.packed != 0,
+	    "a 16 bit clip parses");
+	anim_Sample(&a, 0.05f, 1, v, 2, 0);
+	check(close_to(v[0].y, 5.0f) && close_to(v[1].x, 1.0f),
+	    "16 bit frames decode and blend like float ones");
+	check(anim_Parse(&a, file, (long)sizeof file - 2) != 0,
+	    "a cut 16 bit clip is refused");
+}
+
 static void
 test_wav_and_mixer(void)
 {
@@ -686,6 +729,7 @@ main(void)
 	test_obj();
 	test_obj_numbers();
 	test_anim();
+	test_anim_packed();
 	test_wav_and_mixer();
 
 	printf("%d checks, %d failures\n", checks, failures);

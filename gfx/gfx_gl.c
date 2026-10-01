@@ -133,6 +133,7 @@ static int screen_w = 640;
 static int screen_h = 480;
 static int draw_calls;
 static unsigned int quad_mesh;
+static unsigned int sprite_mesh;
 
 /*  The normal goes through the model matrix with w = 0, which drops the
  *  translation column and leaves rotation and scale.  Writing this as
@@ -384,7 +385,11 @@ gfx_Init(void)
 	if (u_tex >= 0)
 		p_glUniform1i(u_tex, 0);
 
-	/*  A unit quad, reused by every 2D call and every sprite.  */
+	/*  A unit quad.  Two copies: gfx_Quad() rewrites the vertices of its
+	 *  own in pixels every call, so a sprite drawn after any 2D call used
+	 *  to get a quad the size of the screen and vanish.  Sprites keep a
+	 *  copy nobody writes to.
+	 */
 	for (i = 0; i < 4; i++) {
 		quad[i].nx = 0.0f;
 		quad[i].ny = 0.0f;
@@ -399,6 +404,7 @@ gfx_Init(void)
 	quad[2].u = 1.0f; quad[2].v = 1.0f;
 	quad[3].u = 0.0f; quad[3].v = 1.0f;
 	quad_mesh = gfx_MakeMesh(quad, 4, qidx, 6, 1);
+	sprite_mesh = gfx_MakeMesh(quad, 4, qidx, 6, 0);
 
 	m4_identity(cur_view);
 	m4_identity(cur_proj);
@@ -678,7 +684,7 @@ gfx_DrawSprite(const vector centre, float w, float h, unsigned int tex,
 	vector right;
 	vector up;
 
-	m = mesh_at(quad_mesh);
+	m = mesh_at(sprite_mesh);
 	if (m == 0)
 		return;
 
